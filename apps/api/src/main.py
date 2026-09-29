@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings as app_settings
 from .models.settings import init_db
-from .routers import agent, editor, health, settings as settings_router, workspaces
+from .routers import agent, assets, editor, health, settings as settings_router, workspaces
 
 logging.basicConfig(
     level=logging.INFO,
@@ -168,6 +168,7 @@ def _create_app() -> FastAPI:
     app.include_router(editor.router)
     app.include_router(settings_router.router)
     app.include_router(workspaces.router)
+    app.include_router(assets.router)
 
     if os.path.isdir(FRONTEND_DIST):
         # ── Desktop mode: inject custom title bar ─────────────

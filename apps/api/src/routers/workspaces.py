@@ -134,6 +134,9 @@ def update_workspace(
 
 @router.delete("/{workspace_id}")
 def delete_workspace(workspace_id: str, db: Session = Depends(get_db)):
+    from .assets import delete_workspace_assets
+
+    delete_workspace_assets(workspace_id, db)
     record = db.get(WorkspaceRecord, workspace_id)
     if record is not None:
         db.delete(record)

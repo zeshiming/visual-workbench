@@ -9,6 +9,7 @@ defineOptions({
 })
 
 import ImageDropzone from '@/components/ImageDropzone.vue'
+import AssetLibrary from '@/components/AssetLibrary.vue'
 import WorkspaceImageViewport from '@/components/WorkspaceImageViewport.vue'
 import { pickImageFile, readImageFileAsDataUrl } from '@/lib/read-image-file'
 import {
@@ -140,6 +141,16 @@ function handleImageSelect(dataUrl: string): void {
   applyWorkspaceImage(dataUrl)
 }
 
+async function ensureWorkspaceSaved(): Promise<void> {
+  const record = workspaceRecord.value
+  if (!record) throw new Error('项目不存在')
+  await persistWorkspace({
+    ...record,
+    sourceImage: displaySourceImage.value ?? undefined,
+    hasSourceImage: Boolean(displaySourceImage.value),
+  })
+}
+
 function openReplacePicker(): void {
   replaceInputRef.value?.click()
 }
@@ -188,7 +199,7 @@ defineExpose({
 </script>
 
 <template>
-  <section v-if="workspaceRecord" class="app-workspace">
+  <section v-if="workspaceRecord" class="app-workspace flex flex-col">
     <!-- Loading image -->
     <p v-if="isLoadingImage" class="flex flex-1 items-center justify-center text-sm text-app-muted">
       {{ t('workspace.loadingImage') }}
@@ -261,6 +272,12 @@ defineExpose({
         </button>
       </div>
     </div>
+    <AssetLibrary
+      :workspace-id="workspaceId"
+      :current-image="displaySourceImage"
+      :before-write="ensureWorkspaceSaved"
+      @select="handleImageSelect"
+    />
   </section>
   <!-- Loading state: workspace record not yet available -->
   <div v-else class="flex flex-1 items-center justify-center">

@@ -277,6 +277,47 @@ export async function deleteBackendWorkspaceImage(id: string): Promise<void> {
   )
 }
 
+// Reusable images belonging to a workspace.
+export interface ApiAsset {
+  id: string
+  filename: string
+  mediaType: string
+  kind: 'import' | 'edit' | 'generated'
+  createdAt: number
+  sizeBytes: number
+}
+
+function assetPath(workspaceId: string): string {
+  return `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/assets`
+}
+
+export function assetImageUrl(workspaceId: string, assetId: string): string {
+  return `${API_BASE}${assetPath(workspaceId)}/${encodeURIComponent(assetId)}/image`
+}
+
+export function listWorkspaceAssets(workspaceId: string): Promise<ApiAsset[]> {
+  return apiJson<ApiAsset[]>('GET', assetPath(workspaceId))
+}
+
+export async function uploadWorkspaceAsset(
+  workspaceId: string,
+  file: File,
+  kind: ApiAsset['kind'] = 'import',
+): Promise<ApiAsset> {
+  const body = new FormData()
+  body.append('file', file)
+  body.append('kind', kind)
+  const response = await fetch(`${API_BASE}${assetPath(workspaceId)}`, { method: 'POST', body })
+  if (!response.ok) {
+    throw new Error(`图片导入失败 (${response.status}): ${await response.text()}`)
+  }
+  return response.json() as Promise<ApiAsset>
+}
+
+export async function deleteWorkspaceAsset(workspaceId: string, assetId: string): Promise<void> {
+  await apiJson<{ ok: boolean }>('DELETE', `${assetPath(workspaceId)}/${encodeURIComponent(assetId)}`)
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Health Check
 // ═══════════════════════════════════════════════════════════════

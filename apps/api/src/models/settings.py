@@ -43,12 +43,28 @@ class WorkspaceRecord(SQLModel, table=True):
     has_source_image: bool = Field(default=False)
 
 
+class AssetRecord(SQLModel, table=True):
+    """An image in a workspace's reusable asset library."""
+
+    __tablename__ = "assets"
+
+    id: str = Field(primary_key=True)
+    workspace_id: str = Field(index=True)
+    filename: str
+    media_type: str
+    kind: str = Field(default="import")
+    created_at: int
+    size_bytes: int
+
+
 def get_session() -> Session:
     return Session(engine)
 
 
 def init_db() -> None:
     """Create tables and ensure the singleton row exists."""
+    if _DATA_DIR:
+        os.makedirs(_DATA_DIR, exist_ok=True)
     SQLModel.metadata.create_all(engine)
     os.makedirs(WORKSPACE_IMAGES_DIR, exist_ok=True)
 
