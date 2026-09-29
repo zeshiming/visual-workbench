@@ -11,6 +11,8 @@ import SavedProjectSidebar from '@/components/SavedProjectSidebar.vue'
 import WorkspaceRightSidebar from '@/components/WorkspaceRightSidebar.vue'
 import TabBar from '@/components/TabBar.vue'
 import TopBar from '@/components/TopBar.vue'
+import WorkspaceToolRail from '@/components/WorkspaceToolRail.vue'
+import { setWorkspaceMode, workspaceMode } from '@/lib/workspace-mode-state'
 import { openNewWorkspace, openNewWorkspaceWithImage } from '@/lib/open-new-workspace'
 import { pickImageFile, readImageFileAsDataUrl } from '@/lib/read-image-file'
 import { handleAppShortcut } from '@/lib/app-shortcuts'
@@ -58,6 +60,7 @@ const closeTargetTabId = ref<string | null>(null)
 const sidebarVisible = ref(true)
 const rightSidebarVisible = ref(true)
 const openImageInputRef = ref<HTMLInputElement | null>(null)
+
 
 const appTabs = computed(() => {
   // Read reactive deps: workspace cache + open tabs + dirty state
@@ -518,7 +521,7 @@ async function handleDeleteProject(workspaceId: string): Promise<void> {
 </script>
 
 <template>
-  <div class="flex min-h-dvh flex-col bg-app text-app-foreground">
+  <div class="app-shell flex min-h-dvh flex-col bg-app text-app-foreground">
     <TopBar
       :save-enabled="canSaveActiveWorkspace"
       :export-enabled="canExportActiveWorkspace"
@@ -531,14 +534,18 @@ async function handleDeleteProject(workspaceId: string): Promise<void> {
       @file-action="handleFileAction"
       @edit-action="handleEditAction"
     />
-    <div class="flex min-h-0 flex-1">
+    <div class="app-main-layout flex min-h-0 flex-1">
       <SavedProjectSidebar
         v-show="sidebarVisible"
         :active-workspace-id="activeWorkspaceId"
         @select="openSavedProject"
         @delete="handleDeleteProject"
       />
-      <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+      <WorkspaceToolRail
+        :active-mode="workspaceMode"
+        @select="setWorkspaceMode"
+      />
+      <div class="app-content flex min-h-0 min-w-0 flex-1 flex-col">
         <TabBar
           v-if="appTabs.length"
           :tabs="appTabs"
@@ -546,13 +553,14 @@ async function handleDeleteProject(workspaceId: string): Promise<void> {
           @select="selectTab"
           @close="closeAppTab"
         />
-        <main class="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-surface">
+        <main class="app-main flex min-h-0 flex-1 flex-col overflow-hidden bg-app-surface">
           <RouteTransition :direction="transitionDirection" />
         </main>
       </div>
       <WorkspaceRightSidebar
         v-show="rightSidebarVisible"
         :active-workspace-id="activeWorkspaceId"
+        :workspace-mode="workspaceMode"
       />
     </div>
 

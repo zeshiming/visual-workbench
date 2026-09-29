@@ -116,26 +116,37 @@ export async function runAgentViaBackend(
     for (const line of lines) {
       if (!line.trim()) continue
 
-      try {
-        const event = JSON.parse(line)
+      let event: {
+        type?: string
+        phase?: string
+        message?: string
+        analysis?: Record<string, unknown>
+        analysis_raw?: string
+        images?: string[]
+        text?: string | null
+      }
 
-        if (event.type === 'progress') {
-          options.onProgress?.(event.phase as AgentRunStep)
-        } else if (event.type === 'result') {
-          return {
-            analysis: event.analysis,
-            analysisRaw: event.analysis_raw,
-            images: event.images,
-            text: event.text ?? null,
-          } as ApiAgentRunResult
-        } else if (event.type === 'error') {
-          throw new Error(event.message || 'Agent 执行失败')
-        }
-      } catch (parseErr) {
-        if (parseErr instanceof Error && parseErr.message !== 'Agent 执行失败') {
-          continue
-        }
-        throw parseErr
+      try {
+        event = JSON.parse(line) as typeof event
+      } catch {
+        // Ignore a malformed/incomplete line and continue reading the stream.
+        continue
+      }
+
+      if (event.type === 'progress') {
+        options.onProgress?.(event.phase as AgentRunStep)
+      } else if (event.type === 'result') {
+        return {
+          analysis: event.analysis,
+          analysisRaw: event.analysis_raw,
+          images: event.images,
+          text: event.text ?? null,
+        } as ApiAgentRunResult
+      } else if (event.type === 'error') {
+        // Do not swallow the backend's provider/model error. The previous
+        // parser caught this throw as if it were a JSON parse failure and
+        // replaced the useful message with “后端未返回结果”.
+        throw new Error(event.message || 'Agent 执行失败')
       }
     }
   }
@@ -285,6 +296,11 @@ export interface ApiAsset {
   kind: 'import' | 'edit' | 'generated'
   createdAt: number
   sizeBytes: number
+  width?: number | null
+  height?: number | null
+  metadata?: Record<string, string | number>
+  pairGroup?: string | null
+  pairRole?: 'raw' | 'jpeg' | 'other' | null
 }
 
 function assetPath(workspaceId: string): string {
@@ -316,6 +332,21 @@ export async function uploadWorkspaceAsset(
 
 export async function deleteWorkspaceAsset(workspaceId: string, assetId: string): Promise<void> {
   await apiJson<{ ok: boolean }>('DELETE', `${assetPath(workspaceId)}/${encodeURIComponent(assetId)}`)
+}
+
+export async function exportWorkspaceAssets(
+  workspaceId: string,
+  assetIds: string[],
+): Promise<Blob> {
+  const response = await fetch(`${API_BASE}${assetPath(workspaceId)}/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assetIds }),
+  })
+  if (!response.ok) {
+    throw new Error(`导出失败 (${response.status}): ${await response.text()}`)
+  }
+  return response.blob()
 }
 
 // ═══════════════════════════════════════════════════════════════

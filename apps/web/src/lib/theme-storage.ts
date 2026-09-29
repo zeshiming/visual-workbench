@@ -2,9 +2,13 @@ import { loadBackendSettings, saveBackendSettings } from '@/lib/api-client'
 
 export type Theme = 'light' | 'dark'
 
-export const DEFAULT_THEME: Theme = 'light'
+// The editing workspace is designed around a low-distraction dark canvas.
+// Users can still switch to light mode from Settings, and an existing saved
+// preference continues to take precedence over this first-run default.
+export const DEFAULT_THEME: Theme = 'dark'
 
-const STORAGE_KEY = 'doushabao-theme'
+const STORAGE_KEY = 'visual-workbench-theme'
+const LEGACY_STORAGE_KEY = 'doushabao-theme'
 
 let currentTheme: Theme = DEFAULT_THEME
 
@@ -16,6 +20,10 @@ function loadFromLocalStorage(): Theme {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (isTheme(stored)) return stored
+
+    // Keep an explicitly chosen dark preference from the old shell, but do
+    // not carry its light default into the redesigned dark-first workspace.
+    if (localStorage.getItem(LEGACY_STORAGE_KEY) === 'dark') return 'dark'
   } catch {
     // localStorage unavailable
   }

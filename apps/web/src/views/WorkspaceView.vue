@@ -27,10 +27,13 @@ import {
 import {
   getWorkspaceEditMode,
   getWorkspaceEditorMarks,
+  setWorkspaceActiveAssetId,
   setWorkspaceEditorMarks,
   workspaceUiRevision,
 } from '@/lib/workspace-ui-state'
 import { hydrateWorkspaceImage, savedWorkspacesRevision } from '@/lib/workspace-storage'
+import { peekWorkspaceImageUndo, workspaceUndoRevision } from '@/lib/workspace-image-history'
+import { workspaceMode } from '@/lib/workspace-mode-state'
 import type { Workspace } from '@/types/workspace'
 
 const props = defineProps<{
@@ -42,6 +45,7 @@ const { t } = useI18n()
 const hydratedSourceImage = ref<string | null>(null)
 const isLoadingImage = ref(false)
 const replaceInputRef = ref<HTMLInputElement | null>(null)
+const comparisonMode = ref<'before' | 'split' | 'after'>('after')
 
 const workspaceRecord = computed(() => {
   openWorkspaces.value
@@ -73,6 +77,25 @@ const editorMarks = computed(() => {
   workspaceUiRevision.value
   return getWorkspaceEditorMarks(props.workspaceId)
 })
+
+const comparisonImage = computed(() => {
+  workspaceUndoRevision.value
+  return peekWorkspaceImageUndo(props.workspaceId) ?? null
+})
+
+const hasComparison = computed(() => Boolean(comparisonImage.value))
+
+const viewportImage = computed(() => {
+  if (comparisonMode.value === 'before' && comparisonImage.value) {
+    return comparisonImage.value
+  }
+
+  return displaySourceImage.value
+})
+
+const splitComparisonImage = computed(() =>
+  comparisonMode.value === 'split' ? comparisonImage.value : null,
+)
 
 const annotationMode = computed(() => editMode.value === 'editor' && !isEditing.value)
 
@@ -116,6 +139,16 @@ async function commitWorkspaceChanges(nextWorkspace: Workspace): Promise<void> {
   hydratedSourceImage.value = nextWorkspace.sourceImage ?? null
 }
 
+async function ensureWorkspaceSaved(): Promise<void> {
+  const record = workspaceRecord.value
+  if (!record) throw new Error('项目不存在')
+  await persistWorkspace({
+    ...record,
+    sourceImage: displaySourceImage.value ?? undefined,
+    hasSourceImage: Boolean(displaySourceImage.value),
+  })
+}
+
 function applyWorkspaceImage(dataUrl: string): void {
   const record = workspaceRecord.value
 
@@ -137,18 +170,9 @@ function applyWorkspaceImage(dataUrl: string): void {
   stageWorkspaceImageChange(nextWorkspace)
 }
 
-function handleImageSelect(dataUrl: string): void {
+function handleImageSelect(dataUrl: string, assetId?: string): void {
+  setWorkspaceActiveAssetId(props.workspaceId, assetId ?? null)
   applyWorkspaceImage(dataUrl)
-}
-
-async function ensureWorkspaceSaved(): Promise<void> {
-  const record = workspaceRecord.value
-  if (!record) throw new Error('项目不存在')
-  await persistWorkspace({
-    ...record,
-    sourceImage: displaySourceImage.value ?? undefined,
-    hasSourceImage: Boolean(displaySourceImage.value),
-  })
 }
 
 function openReplacePicker(): void {
@@ -186,6 +210,12 @@ watch(
   { immediate: true },
 )
 
+watch(hasComparison, (available) => {
+  if (!available) {
+    comparisonMode.value = 'after'
+  }
+})
+
 /**
  * Re-run hydration when the component is reactivated by KeepAlive.
  */
@@ -214,6 +244,38 @@ defineExpose({
     <!-- image workspace — has image -->
     <div v-else-if="displaySourceImage" class="flex min-h-0 flex-1 flex-col">
       <div class="app-workspace-toolbar">
+        <div class="workspace-toolbar-meta min-w-0">
+          <span class="app-eyebrow">CURRENT FRAME</span>
+          <span class="truncate text-xs text-app-muted">{{ workspaceRecord.title }}</span>
+        </div>
+        <div class="app-compare-control" role="tablist" aria-label="图片对比模式">
+          <button
+            type="button"
+            role="tab"
+            class="app-compare-option"
+            :class="{ 'app-compare-option-active': comparisonMode === 'before' }"
+            :disabled="!hasComparison"
+            :aria-selected="comparisonMode === 'before'"
+            @click="comparisonMode = 'before'"
+          >原图</button>
+          <button
+            type="button"
+            role="tab"
+            class="app-compare-option"
+            :class="{ 'app-compare-option-active': comparisonMode === 'split' }"
+            :disabled="!hasComparison"
+            :aria-selected="comparisonMode === 'split'"
+            @click="comparisonMode = 'split'"
+          >分割对比</button>
+          <button
+            type="button"
+            role="tab"
+            class="app-compare-option"
+            :class="{ 'app-compare-option-active': comparisonMode === 'after' }"
+            :aria-selected="comparisonMode === 'after'"
+            @click="comparisonMode = 'after'"
+          >调整后</button>
+        </div>
         <input
           ref="replaceInputRef"
           type="file"
@@ -223,7 +285,7 @@ defineExpose({
         />
         <button
           type="button"
-          class="rounded-md border border-app-border bg-app-surface px-2.5 py-1 text-xs text-app-muted transition hover:bg-app-accent hover:text-app-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          class="app-btn-quiet"
           :disabled="isEditing"
           @click="openReplacePicker"
         >
@@ -233,8 +295,9 @@ defineExpose({
       <div class="app-workspace-canvas-wrap">
         <div class="app-workspace-canvas">
           <WorkspaceImageViewport
-            :key="displaySourceImage"
-            :src="displaySourceImage"
+            :src="viewportImage"
+            :compare-src="splitComparisonImage"
+            :preserve-viewport="true"
             :alt="t('workspace.image')"
             class="h-full"
             :annotation-mode="annotationMode"
@@ -273,6 +336,7 @@ defineExpose({
       </div>
     </div>
     <AssetLibrary
+      v-if="workspaceMode === 'photos'"
       :workspace-id="workspaceId"
       :current-image="displaySourceImage"
       :before-write="ensureWorkspaceSaved"

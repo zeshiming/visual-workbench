@@ -26,7 +26,7 @@ describe('App', () => {
       },
     })
     expect(wrapper.find('header').exists()).toBe(true)
-    expect(wrapper.text()).toContain('豆沙包')
+    expect(wrapper.text()).toContain('AI 图片创作工作台')
     expect(wrapper.text()).toContain('文件')
     expect(wrapper.text()).toContain('编辑')
     expect(wrapper.text()).toContain('视图')

@@ -61,11 +61,12 @@ function confirmDelete(workspaceId: string): void {
 
 <template>
   <aside
-    class="flex w-56 shrink-0 flex-col border-r border-app-border bg-app"
+    class="app-sidebar flex w-56 shrink-0 flex-col border-r border-app-border bg-app"
     :aria-label="t('sidebar.savedProjects')"
   >
-    <div class="border-b border-app-border px-3 py-2.5">
-      <h2 class="text-xs font-medium tracking-wide text-app-muted uppercase">{{ t('sidebar.projects') }}</h2>
+    <div class="app-sidebar-header border-b border-app-border px-3 py-2.5">
+      <div class="app-eyebrow">Library</div>
+      <h2 class="mt-1 text-sm font-medium tracking-tight text-app-foreground">{{ t('sidebar.projects') }}</h2>
     </div>
 
     <div class="min-h-0 flex-1 overflow-y-auto p-2">

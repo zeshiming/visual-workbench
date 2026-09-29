@@ -2,7 +2,7 @@ import type { MessageSchema } from './en'
 
 const ja: MessageSchema = {
   app: {
-    name: 'Doushabao',
+    name: 'AI画像クリエイティブワークスペース',
   },
   common: {
     save: '保存',

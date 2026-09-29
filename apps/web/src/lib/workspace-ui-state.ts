@@ -4,6 +4,7 @@ import type { AgentImageAnalysis } from '@/types/agent'
 
 import type { EditMode } from '@/lib/edit-mode'
 import type { EditorMark } from '@/types/editor-mark'
+import type { BasicImageAdjustments } from '@/lib/image-adjustments'
 
 export type WorkspaceRunStep = 'analysis' | 'edit'
 
@@ -18,13 +19,27 @@ type WorkspaceUiState = {
   runStep: WorkspaceRunStep | null
   runError: string
   analysis: AgentImageAnalysis | null
+  selectedAssetIds: string[]
+  activeAssetId: string | null
+  assetAdjustments: Record<string, BasicImageAdjustments>
 }
 
 const workspaceUiStates = new Map<string, WorkspaceUiState>()
 
 export const workspaceUiRevision = ref(0)
+export const workspaceAssetsRevision = ref(0)
 
-function createDefaultState(): WorkspaceUiState {
+function loadAssetAdjustments(workspaceId: string): Record<string, BasicImageAdjustments> {
+  try {
+    const stored = localStorage.getItem(`visual-workbench-adjustments:${workspaceId}`)
+    if (stored) return JSON.parse(stored) as Record<string, BasicImageAdjustments>
+  } catch {
+    // Ignore malformed or unavailable local storage.
+  }
+  return {}
+}
+
+function createDefaultState(workspaceId: string): WorkspaceUiState {
   return {
     editMode: 'agent',
     editorMarks: [],
@@ -35,6 +50,9 @@ function createDefaultState(): WorkspaceUiState {
     runStep: null,
     runError: '',
     analysis: null,
+    selectedAssetIds: [],
+    activeAssetId: null,
+    assetAdjustments: loadAssetAdjustments(workspaceId),
   }
 }
 
@@ -42,7 +60,7 @@ function getState(workspaceId: string): WorkspaceUiState {
   let state = workspaceUiStates.get(workspaceId)
 
   if (!state) {
-    state = createDefaultState()
+    state = createDefaultState(workspaceId)
     workspaceUiStates.set(workspaceId, state)
   }
 
@@ -198,11 +216,71 @@ export function clearWorkspaceRunPresentation(workspaceId: string): void {
   bumpRevision()
 }
 
+export function getWorkspaceSelectedAssetIds(workspaceId: string): string[] {
+  return [...getState(workspaceId).selectedAssetIds]
+}
+
+export function setWorkspaceSelectedAssetIds(workspaceId: string, assetIds: string[]): void {
+  const state = getState(workspaceId)
+  const next = [...new Set(assetIds)]
+  if (state.selectedAssetIds.join('|') === next.join('|')) return
+  state.selectedAssetIds = next
+  bumpRevision()
+}
+
+export function getWorkspaceActiveAssetId(workspaceId: string): string | null {
+  return getState(workspaceId).activeAssetId
+}
+
+export function setWorkspaceActiveAssetId(workspaceId: string, assetId: string | null): void {
+  const state = getState(workspaceId)
+  if (state.activeAssetId === assetId) return
+  state.activeAssetId = assetId
+  bumpRevision()
+}
+
+export function getWorkspaceAssetAdjustments(
+  workspaceId: string,
+  assetId: string | null,
+  fallback: BasicImageAdjustments,
+): BasicImageAdjustments {
+  if (!assetId) return { ...fallback }
+  return { ...fallback, ...(getState(workspaceId).assetAdjustments[assetId] ?? {}) }
+}
+
+export function setWorkspaceAssetAdjustments(
+  workspaceId: string,
+  assetId: string | null,
+  adjustments: BasicImageAdjustments,
+): void {
+  if (!assetId) return
+  getState(workspaceId).assetAdjustments[assetId] = { ...adjustments }
+  try {
+    localStorage.setItem(
+      `visual-workbench-adjustments:${workspaceId}`,
+      JSON.stringify(getState(workspaceId).assetAdjustments),
+    )
+  } catch {
+    // In-memory state remains usable when storage is unavailable.
+  }
+  bumpRevision()
+}
+
+export function notifyWorkspaceAssetsChanged(): void {
+  workspaceAssetsRevision.value += 1
+}
+
 export function removeWorkspaceUiState(workspaceId: string): void {
   workspaceUiStates.delete(workspaceId)
+  try {
+    localStorage.removeItem(`visual-workbench-adjustments:${workspaceId}`)
+  } catch {
+    // Ignore unavailable local storage.
+  }
 }
 
 export function clearWorkspaceUiState(): void {
   workspaceUiStates.clear()
   workspaceUiRevision.value = 0
+  workspaceAssetsRevision.value = 0
 }

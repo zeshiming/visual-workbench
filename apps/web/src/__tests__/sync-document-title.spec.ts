@@ -4,6 +4,6 @@ import { formatPageDocumentTitle } from '@/lib/sync-document-title'
 
 describe('formatPageDocumentTitle', () => {
   it('joins page and site name with a pipe', () => {
-    expect(formatPageDocumentTitle('主工作区', '豆沙包')).toBe('主工作区 | 豆沙包')
+    expect(formatPageDocumentTitle('主工作区', 'AI 图片创作工作台')).toBe('主工作区 | AI 图片创作工作台')
   })
 })

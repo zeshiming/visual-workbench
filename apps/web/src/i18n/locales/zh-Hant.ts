@@ -2,7 +2,7 @@ import type { MessageSchema } from './en'
 
 const zhHant: MessageSchema = {
   app: {
-    name: '豆沙包',
+    name: 'AI 圖片創作工作台',
   },
   common: {
     save: '儲存',

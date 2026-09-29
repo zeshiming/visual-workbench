@@ -2,7 +2,7 @@ import type { MessageSchema } from './en'
 
 const ko: MessageSchema = {
   app: {
-    name: 'Doushabao',
+    name: 'AI 이미지 크리에이티브 워크스페이스',
   },
   common: {
     save: '저장',

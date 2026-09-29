@@ -1,6 +1,6 @@
 const en = {
   app: {
-    name: 'Doushabao',
+    name: 'AI Image Creation Studio',
   },
   common: {
     save: 'Save',

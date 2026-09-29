@@ -7,11 +7,78 @@ litellm handles: provider routing, modality negotiation, retry, fallback.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from ..config import settings
 
 logger = logging.getLogger(__name__)
+
+_MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\((data:image/[^)]+|https?://[^)\s]+)\)")
+
+
+def _read_value(value: Any, key: str) -> Any:
+    if isinstance(value, dict):
+        return value.get(key)
+    return getattr(value, key, None)
+
+
+def _image_value(value: Any, mime_type: str = "image/png") -> list[str]:
+    """Extract image URLs/data URLs from common OpenAI-compatible shapes."""
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("data:image/") or text.startswith("https://") or text.startswith("http://"):
+            return [text]
+        return _MARKDOWN_IMAGE_RE.findall(text)
+
+    if isinstance(value, (list, tuple)):
+        images: list[str] = []
+        for item in value:
+            images.extend(_image_value(item, mime_type))
+        return images
+
+    if isinstance(value, dict):
+        b64 = value.get("b64_json") or value.get("base64")
+        if isinstance(b64, str) and b64:
+            return [f"data:{value.get('mime_type', mime_type)};base64,{b64}"]
+
+        images: list[str] = []
+        for key in ("image_url", "url", "image", "images", "content", "data"):
+            if key in value:
+                images.extend(_image_value(value[key], value.get("mime_type", mime_type)))
+        return images
+
+    # LiteLLM may expose response parts as typed objects rather than dicts.
+    object_b64 = getattr(value, "b64_json", None) or getattr(value, "base64", None)
+    if isinstance(object_b64, str) and object_b64:
+        object_mime = getattr(value, "mime_type", mime_type)
+        return [f"data:{object_mime};base64,{object_b64}"]
+
+    for key in ("image_url", "url", "image", "images", "content", "data"):
+        nested = getattr(value, key, None)
+        if nested is not None:
+            images = _image_value(nested, getattr(value, "mime_type", mime_type))
+            if images:
+                return images
+
+    return []
+
+
+def _text_value(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (list, tuple)):
+        chunks: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                chunks.append(item)
+            elif isinstance(item, dict) and isinstance(item.get("text"), str):
+                chunks.append(item["text"])
+        return "\n".join(chunks) or None
+    return None
 
 # ── Lazy litellm import ───────────────────────────────────────
 # litellm triggers heavy sub-imports (e.g. compression) that can crash
@@ -185,19 +252,17 @@ async def litellm_image_completion(
 
             if hasattr(choice, "message") and choice.message:
                 msg = choice.message
-                # litellm puts images in message.images
-                if hasattr(msg, "images") and msg.images:
-                    for img in msg.images:
-                        if hasattr(img, "image_url") and img.image_url:
-                            images.append(img.image_url.url)
-                        elif isinstance(img, dict):
-                            url = (img.get("image_url") or {}).get("url")
-                            if url:
-                                images.append(url)
+                # Providers place generated images in different OpenAI-compatible
+                # fields: message.images, content parts, image_url, or data[].
+                images.extend(_image_value(_read_value(msg, "images")))
+                images.extend(_image_value(_read_value(msg, "content")))
 
-                # Extract text content
-                if isinstance(msg.content, str) and msg.content.strip():
-                    text = msg.content
+                # Extract text content without treating it as an image response.
+                text = _text_value(_read_value(msg, "content"))
+
+            # Some gateways return the image-generation shape at response.data
+            # instead of choices[0].message.images.
+            images.extend(_image_value(_read_value(response, "data")))
 
             if images:
                 return {"images": images, "text": text}

@@ -14,6 +14,8 @@ import {
 const props = withDefaults(
   defineProps<{
     src: string
+    compareSrc?: string | null
+    preserveViewport?: boolean
     alt?: string
     annotationMode?: boolean
     marks?: EditorMark[]
@@ -21,6 +23,8 @@ const props = withDefaults(
   {
     alt: '工作区图片',
     annotationMode: false,
+    compareSrc: null,
+    preserveViewport: false,
     marks: () => [],
   },
 )
@@ -421,17 +425,22 @@ function onImageLoad(): void {
     loadedImageHeight.value = imageRef.value.naturalHeight
   }
 
+  // Preview renders can have a different pixel size from the original. Fit
+  // the newly loaded source to the same viewport instead of multiplying the
+  // previous scale by a guessed ratio.
   fitImageToViewport()
 }
 
 watch(
   () => props.src,
   () => {
-    scale.value = 1
-    translateX.value = 0
-    translateY.value = 0
-    loadedImageWidth.value = 0
-    loadedImageHeight.value = 0
+    if (!props.preserveViewport) {
+      scale.value = 1
+      translateX.value = 0
+      translateY.value = 0
+      loadedImageWidth.value = 0
+      loadedImageHeight.value = 0
+    }
     hoveredMarkId.value = null
     finishMovingMark()
     isDrawing.value = false
@@ -488,6 +497,20 @@ defineExpose({
       @auxclick="onAuxClick"
     >
       <div class="absolute inset-0" :style="contentStyle">
+      <img
+        v-if="props.compareSrc"
+        :src="props.compareSrc"
+        :alt="`${alt}原图对比`"
+        draggable="false"
+        class="pointer-events-none absolute left-0 top-0 block max-w-none"
+        style="clip-path: inset(0 50% 0 0)"
+        aria-hidden="true"
+      />
+      <div
+        v-if="props.compareSrc"
+        class="pointer-events-none absolute inset-y-0 left-1/2 z-10 w-px -translate-x-1/2 bg-white/80 shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
+        aria-hidden="true"
+      />
       <img
         ref="imageRef"
         :src="src"
