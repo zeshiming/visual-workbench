@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="apps/web/src/assets/images/logo.png" alt="Doushabao logo" width="160" />
+  <img src="apps/web/src/assets/images/logo.png" alt="AI Image Creation Workbench logo" width="160" />
 </p>
 
-<h1 align="center">Doushabao</h1>
+<h1 align="center">AI Image Creation Workbench</h1>
 
 <p align="center">
   <strong>English</strong> ·
@@ -12,14 +12,17 @@
   <a href="README.ko.md">한국어</a>
 </p>
 
-**Doushabao** _(Chinese: 豆沙包 — a sweet red-bean bun)_ is an open-source, browser-based AI image editor. Like its mascot — a cheerful steamed bun with a bite taken out to reveal rich red-bean filling — the app is warm, approachable, and focused on what matters: making your images better, one edit at a time.
+**AI Image Creation Workbench** is an open-source photography workbench for organizing, developing, and refining images with a combination of local processing and AI assistance. The product is designed around a photographer's real workflow: import a shoot, review and filter the library, make reversible adjustments, save a style, and use AI only when it adds value.
 
-Built for creators who want powerful AI editing without a heavy desktop workflow, Doushabao runs entirely in the browser and offers two complementary modes:
+The workbench combines several complementary modes:
 
-- **Agent mode** — describe what you want in natural language; the AI analyzes your image and applies intelligent edits automatically.
-- **Editor mode** — mark regions on the canvas and give precise, localized instructions for fine-grained control.
+- **Photo Library** — import images, search by filename or customer feedback ID, group RAW/JPG pairs, and filter by format or selection state.
+- **Develop** — adjust exposure, contrast, saturation, temperature, tint, and other local image parameters with instant preview.
+- **Color Match and Styles** — apply reference-based color matching, LUTs, and reusable style presets.
+- **AI Agent** — analyze a photo, break a request into steps, and route work to local processing or configured AI providers.
+- **Editor** — add localized marks and precise instructions for targeted edits after analysis.
 
-Whether you are retouching a photo, cleaning up distractions, or refining details, Doushabao keeps the process simple: open an image, edit with AI, and export the result — all in a clean, workspace-driven interface.
+The goal is to keep routine photographic work fast and controllable while making AI actions traceable and reversible. The application runs in the browser or as an Electron desktop app, with a FastAPI backend for workspaces, image processing, and AI orchestration.
 
 Open source. Privacy-friendly. Multiple deployment options: web, desktop, or Docker.
 
