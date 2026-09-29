@@ -1,0 +1,57 @@
+# Git
+.git
+.gitattributes
+.gitignore
+.gitmodules
+
+# Dependencies
+node_modules
+.pnpm-store
+__pycache__
+*.py[cod]
+*.pyo
+*.egg-info
+.venv
+.venv/
+
+# Build artifacts
+dist
+dev-dist
+.turbo
+
+# IDE & OS
+.vscode
+.idea
+*.swp
+*.sw?
+.DS_Store
+Thumbs.db
+
+# Data & environment
+.env
+*.db
+workspace_images
+/data
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# CI / Test
+coverage
+.pytest_cache
+.mypy_cache
+.ruff_cache
+__screenshots__
+
+# Documentation (not needed at runtime)
+README.md
+README.*.md
+LICENSE
+AGENTS.md
+
+# Misc
+.cursor
+scripts

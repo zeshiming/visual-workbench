@@ -1,0 +1,159 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Warm shell tones aligned with brand; elevated stays neutral white for photo preview */
+  --color-app: #f3f0eb;
+  --color-app-foreground: #1c1917;
+  --color-app-muted: #6b645c;
+  --color-app-subtle: #9a948b;
+  --color-app-border: #ddd8d2;
+  --color-app-accent: #e5dfd6;
+  --color-app-elevated: #ffffff;
+  --color-app-surface: #faf7f2;
+  --color-app-input: #ffffff;
+  --color-app-focus: #d5c8bc;
+  --color-app-primary: #8b4d42;
+  --color-app-primary-foreground: #fffaf8;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: var(--color-app);
+    color: var(--color-app-foreground);
+  }
+
+  html:not(.dark) {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+
+    --color-app: #141414;
+    --color-app-foreground: #e8e8e8;
+    --color-app-muted: #888888;
+    --color-app-subtle: #666666;
+    --color-app-border: #2a2a2a;
+    --color-app-accent: #1f1f1f;
+    --color-app-elevated: #1a1a1a;
+    --color-app-surface: #1a1a1a;
+    --color-app-input: #1a1a1a;
+    --color-app-focus: #3a3a3a;
+    --color-app-primary: #e8e8e8;
+    --color-app-primary-foreground: #141414;
+  }
+}
+
+@layer components {
+  .app-field {
+    @apply w-full rounded-lg border border-app-border bg-app-input px-3 py-2 text-sm text-app-foreground outline-none transition placeholder:text-app-subtle focus:border-app-primary/40 focus:ring-2 focus:ring-app-focus disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .app-select-trigger {
+    @apply flex w-full items-center gap-2 rounded-lg border border-app-border bg-app-input px-3 py-2 text-left text-sm text-app-foreground outline-none transition hover:border-app-muted focus-visible:border-app-primary/40 focus-visible:ring-2 focus-visible:ring-app-focus disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .app-btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-app-primary px-3 py-2 text-sm font-medium text-app-primary-foreground transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .app-btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-app-border bg-app px-3 py-2 text-sm font-medium text-app-foreground transition hover:bg-app-accent disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .app-tabbar {
+    @apply flex h-9 shrink-0 items-stretch gap-0.5 overflow-x-auto overflow-y-hidden border-b border-app-border bg-app px-2;
+  }
+
+  .app-tab {
+    @apply flex h-full max-w-52 shrink-0 items-center gap-1 rounded-t-md border border-b-0 pl-3 pr-1.5 transition-colors;
+  }
+
+  .app-tab-active {
+    @apply -mb-px z-[1] border-app-border bg-app-surface text-app-foreground;
+  }
+
+  .app-tab-inactive {
+    @apply border-transparent text-app-muted hover:bg-app-accent/80 hover:text-app-foreground;
+  }
+
+  .app-panel-body {
+    @apply min-h-0 flex-1 overflow-y-auto bg-app-surface p-3;
+  }
+
+  .app-card {
+    @apply rounded-lg border border-app-border bg-app;
+  }
+
+  .app-segmented {
+    @apply inline-flex rounded-md border border-app-border bg-app p-0.5;
+  }
+
+  .app-segmented-item {
+    @apply rounded px-2 py-0.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .app-segmented-item-active {
+    @apply bg-app-surface text-app-foreground shadow-sm;
+  }
+
+  .app-segmented-item-inactive {
+    @apply text-app-muted hover:text-app-foreground;
+  }
+
+  .app-workspace {
+    @apply flex min-h-0 flex-1 flex-col bg-app-surface;
+  }
+
+  .app-workspace-toolbar {
+    @apply flex shrink-0 items-center justify-end gap-2 border-b border-app-border bg-app px-3 py-2;
+  }
+
+  .app-workspace-canvas-wrap {
+    @apply relative min-h-0 flex-1 bg-app-surface p-2;
+  }
+
+  .app-workspace-canvas {
+    @apply relative h-full overflow-hidden rounded-lg border border-app-border bg-app-elevated shadow-sm;
+  }
+}
+
+/* ── Timeline scrollbar ─────────────────────────────────── */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-app-border) transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: var(--color-app-border);
+  border-radius: 3px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-app-muted);
+}

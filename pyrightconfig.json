@@ -1,0 +1,6 @@
+{
+  "include": ["apps/api/src"],
+  "exclude": ["apps/web", "electron", "scripts", ".venv"],
+  "venvPath": "apps/api",
+  "venv": ".venv"
+}
