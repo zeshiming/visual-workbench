@@ -191,6 +191,10 @@ MCP SDK          外部文件、云服务和第三方工具接入
 
 选择原则：先用 PydanticAI 做类型安全的 Agent；不为了“使用框架”而引入多 Agent。只有当工作流出现长时间运行、复杂分支或跨会话恢复需求时，才增加 LangGraph / Temporal。
 
+当前已落地 Agent 计划契约的第一版：`apps/api/src/core/agent_plan.py` 定义了受校验的
+`AgentPlan`、步骤依赖关系、工具目录和确定性计划生成器。它暂时作为现有分析→修图流程的
+扩展边界，尚未替换现有接口，也不会在未完成工具执行前假装执行本地步骤。
+
 工具注册表：
 
 ~~~text
@@ -334,6 +338,7 @@ updated_at
 - Agent / Editor 独立入口
 - `.cube` LUT 导入和本地风格预设
 - 真实 RAW 上传、预览、元数据和 JPG+RAW 配对冒烟验证
+- AgentPlan 类型契约、步骤依赖校验和工具目录初版
 
 后续增强：
 
@@ -342,6 +347,7 @@ updated_at
 - Lab / Oklab 和 ICC 色彩管理
 - 人脸、闭眼、主体和构图评分
 - Agent Router → Planner → Tools → Validator 闭环
+- 将 AgentPlan 接入实际 Planner / Tool Runner，执行后返回计划与校验报告
 - PydanticAI 工具注册和结构化计划
 - LangGraph 状态图（仅在需要复杂分支 / 人工审批时）
 - Temporal 长任务队列（仅在批处理规模超过单请求能力时）
