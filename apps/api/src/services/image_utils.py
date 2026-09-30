@@ -80,6 +80,111 @@ def resize_image_to_dimensions(data_url: str, target_w: int, target_h: int) -> s
     return encode_as_data_url(buf.getvalue(), fmt.lower())
 
 
+def apply_basic_image_adjustments(data_url: str, adjustments: dict[str, float]) -> str:
+    """Apply deterministic photo adjustments while preserving image dimensions.
+
+    Values use the same -100..100 contract as the frontend renderer. The
+    implementation intentionally uses the original pixel grid and writes PNG
+    output so an Agent tool can safely chain another operation afterwards.
+    """
+
+    raw = decode_data_url(data_url)
+    image = Image.open(io.BytesIO(raw)).convert("RGBA")
+    pixels = image.load()
+    width, height = image.size
+
+    def value(name: str) -> float:
+        try:
+            parsed = float(adjustments.get(name, 0))
+        except (TypeError, ValueError):
+            return 0.0
+        return max(-100.0, min(100.0, parsed))
+
+    exposure_factor = 2 ** (value("exposure") / 100)
+    contrast_value = value("contrast") * 2.55
+    contrast_factor = (259 * (contrast_value + 255)) / (255 * (259 - contrast_value))
+    saturation_factor = 1 + value("saturation") / 100
+    temperature_shift = value("temperature") * 0.85
+    tint_shift = value("tint") * 0.28
+    highlights = value("highlights")
+    shadows = value("shadows")
+
+    for y in range(height):
+        for x in range(width):
+            red, green, blue, alpha = pixels[x, y]
+            red *= exposure_factor
+            green *= exposure_factor
+            blue *= exposure_factor
+
+            red += temperature_shift - tint_shift * 0.35
+            blue -= temperature_shift + tint_shift * 0.35
+            green += tint_shift
+
+            red = contrast_factor * (red - 128) + 128
+            green = contrast_factor * (green - 128) + 128
+            blue = contrast_factor * (blue - 128) + 128
+
+            luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722
+            normalized_luminance = luminance / 255
+            highlight_weight = max(0.0, (normalized_luminance - 0.5) * 2)
+            shadow_weight = max(0.0, (0.5 - normalized_luminance) * 2)
+            tonal_shift = (highlights * highlight_weight + shadows * shadow_weight) * 0.45
+            red += tonal_shift
+            green += tonal_shift
+            blue += tonal_shift
+
+            adjusted_luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722
+            red = adjusted_luminance + (red - adjusted_luminance) * saturation_factor
+            green = adjusted_luminance + (green - adjusted_luminance) * saturation_factor
+            blue = adjusted_luminance + (blue - adjusted_luminance) * saturation_factor
+
+            pixels[x, y] = (
+                max(0, min(255, round(red))),
+                max(0, min(255, round(green))),
+                max(0, min(255, round(blue))),
+                alpha,
+            )
+
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return encode_as_data_url(output.getvalue(), "png")
+
+
+def estimate_auto_white_balance(data_url: str) -> dict[str, int]:
+    """Estimate temperature and tint with a conservative gray-world sample."""
+
+    image = Image.open(io.BytesIO(decode_data_url(data_url))).convert("RGBA")
+    sample_width = min(image.width, 320)
+    sample_height = max(1, round(image.height / max(image.width, 1) * sample_width))
+    if (sample_width, sample_height) != image.size:
+        image = image.resize((sample_width, sample_height), Image.Resampling.BILINEAR)
+
+    red = green = blue = count = 0.0
+    for r, g, b, alpha in image.getdata():
+        luminance = r * 0.2126 + g * 0.7152 + b * 0.0722
+        if alpha < 220 or luminance < 12 or luminance > 246:
+            continue
+        red += r
+        green += g
+        blue += b
+        count += 1
+    if not count:
+        return {"temperature": 0, "tint": 0}
+
+    average_red = red / count
+    average_green = green / count
+    average_blue = blue / count
+    neutral = (average_red + average_green + average_blue) / 3
+
+    def clamp(value: float) -> int:
+        return max(-100, min(100, round(value)))
+
+    return {
+        "temperature": clamp((average_blue - average_red) * 0.8),
+        "tint": clamp((neutral - average_green) * 0.8),
+    }
+
+
 def render_annotated_image(
     source_data_url: str,
     marks: list[dict],

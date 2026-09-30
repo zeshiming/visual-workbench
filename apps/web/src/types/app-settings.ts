@@ -15,6 +15,9 @@ export type ModelEntry = {
   modelId: string
   label: string
   roles: ModelRole[]
+  /** Optional per-model endpoint overrides. Empty values inherit the provider. */
+  host?: string
+  key?: string
 }
 
 export type AppSettings = {

@@ -16,13 +16,10 @@ def test_build_plan_adds_local_balance_before_ai_edit() -> None:
     plan = build_plan_from_analysis(analysis)
 
     assert plan.execution == "hybrid"
-    assert [step.tool for step in plan.steps] == [
-        "apply_adjustments",
-        "apply_ai_edit",
-        "validate_result",
-    ]
-    assert plan.steps[1].depends_on == ["local_balance"]
-    assert plan.steps[-1].depends_on == ["ai_edit"]
+    assert [step.tool for step in plan.steps] == ["apply_ai_edit", "apply_adjustments", "validate_result"]
+    assert plan.steps[1].params["adjustments"] == {"temperature": -6}
+    assert plan.steps[1].depends_on == ["ai_edit"]
+    assert plan.steps[-1].depends_on == ["local_balance"]
 
 
 def test_plan_rejects_dependencies_on_later_steps() -> None:

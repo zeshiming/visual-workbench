@@ -15,9 +15,8 @@ import { exportWorkspaceImage } from '@/lib/export-workspace-image'
 import { runWorkspaceAgent } from '@/lib/run-workspace-agent'
 import { runWorkspaceEditor } from '@/lib/run-workspace-editor'
 import {
-  assetImageUrl,
-  listWorkspaceAssets,
-  uploadWorkspaceAsset,
+  runBatchToolViaBackend,
+  type ApiBatchJobControls,
 } from '@/lib/api-client'
 import { readImageFileAsDataUrl } from '@/lib/read-image-file'
 import {
@@ -48,6 +47,8 @@ import {
   clearWorkspaceRunPresentation,
   getWorkspaceAgentPrompt,
   getWorkspaceAnalysis,
+  getWorkspaceAgentPlan,
+  getWorkspaceToolTrace,
   getWorkspaceEditMode,
   getWorkspaceEditorMarks,
   getWorkspaceModelSelection,
@@ -58,6 +59,8 @@ import {
   isWorkspaceRunning,
   setWorkspaceAgentPrompt,
   setWorkspaceAnalysis,
+  setWorkspaceAgentPlan,
+  setWorkspaceToolTrace,
   setWorkspaceEditMode,
   setWorkspaceEditorMarks,
   setWorkspaceRunError,
@@ -98,11 +101,16 @@ const batchBusy = ref(false)
 const batchProgress = ref(0)
 const batchTotal = ref(0)
 const batchError = ref('')
+const batchControls = shallowRef<ApiBatchJobControls | null>(null)
+const batchPaused = ref(false)
+const batchHasFailures = ref(false)
 const referencePicker = ref<HTMLInputElement | null>(null)
 const referenceName = ref('')
 const referenceSource = shallowRef<HTMLImageElement | null>(null)
 const lutPicker = ref<HTMLInputElement | null>(null)
 const lutName = ref('')
+const activeStylePresetId = ref<StylePresetId | null>(null)
+const expandedToolStepId = ref<string | null>(null)
 const adjustments = reactive<BasicImageAdjustments>({ ...DEFAULT_IMAGE_ADJUSTMENTS })
 
 const adjustmentItems = [
@@ -277,9 +285,14 @@ function handleAutoWhiteBalance(): void {
 function applyStylePreset(presetId: StylePresetId): void {
   const preset = STYLE_PRESETS.find((item) => item.id === presetId)
   if (!preset || !ensureAdjustmentHistory()) return
+  activeStylePresetId.value = presetId
   Object.assign(adjustments, preset.adjustments)
   handleAdjustmentCommit()
 }
+
+const activeStylePresetLabel = computed(() =>
+  STYLE_PRESETS.find((item) => item.id === activeStylePresetId.value)?.label ?? '未选择',
+)
 
 function openReferencePicker(): void {
   referencePicker.value?.click()
@@ -332,51 +345,43 @@ async function handleLutPick(event: Event): Promise<void> {
 async function handleBatchAdjustments(mode: 'adjustments' | 'whiteBalance' | 'reference' = 'adjustments'): Promise<void> {
   const workspaceId = props.activeWorkspaceId
   if (!workspaceId || batchBusy.value || selectedAssetCount.value === 0) return
+  if (mode === 'reference' && !referenceSource.value) {
+    batchError.value = '请先导入参考图'
+    return
+  }
 
   batchBusy.value = true
   batchError.value = ''
   batchProgress.value = 0
+  batchHasFailures.value = false
 
   try {
-    const selectedIds = new Set(getWorkspaceSelectedAssetIds(workspaceId))
-    const assets = (await listWorkspaceAssets(workspaceId)).filter((asset) => selectedIds.has(asset.id))
-    batchTotal.value = assets.length
+    const selectedIds = getWorkspaceSelectedAssetIds(workspaceId)
     const failures: string[] = []
-
-    for (const asset of assets) {
-      try {
-        const response = await fetch(assetImageUrl(workspaceId, asset.id))
-        if (!response.ok) throw new Error('读取原图失败')
-        const sourceFile = new File(
-          [await response.blob()],
-          asset.filename,
-          { type: asset.mediaType },
-        )
-        const source = await readImageFileAsDataUrl(sourceFile)
-        let adjusted: string
-        const batchAdjustments = { ...adjustments }
-        if (mode === 'whiteBalance') {
-          const sourceForAnalysis = await loadAdjustmentSource(source)
-          Object.assign(batchAdjustments, estimateAutoWhiteBalance(sourceForAnalysis))
-          adjusted = await applyBasicImageAdjustments(source, batchAdjustments)
-        } else if (mode === 'reference' && referenceSource.value) {
-          adjusted = applyReferenceColorTransfer(
-            await loadAdjustmentSource(source),
-            referenceSource.value,
-          )
-        } else {
-          adjusted = await applyBasicImageAdjustments(source, batchAdjustments)
+    await runBatchToolViaBackend(
+      workspaceId,
+      {
+        assetIds: selectedIds,
+        operation: mode === 'whiteBalance'
+          ? 'white_balance'
+          : mode === 'reference' ? 'reference_color' : 'adjustments',
+        adjustments: { ...adjustments },
+        referenceImage: mode === 'reference' ? referenceSource.value?.src : undefined,
+      },
+      (event) => {
+        if (event.type === 'start') batchTotal.value = event.total ?? selectedIds.length
+        if (event.type === 'progress') batchProgress.value = event.processed ?? batchProgress.value
+        if (event.type === 'error' && event.sourceId) {
+          batchHasFailures.value = true
+          failures.push(event.filename ?? event.sourceId)
+          batchProgress.value = event.processed ?? batchProgress.value
         }
-        const adjustedBlob = await (await fetch(adjusted)).blob()
-        const baseName = asset.filename.replace(/\.[^.]+$/, '')
-        const output = new File([adjustedBlob], `${baseName}-调色.png`, { type: 'image/png' })
-        await uploadWorkspaceAsset(workspaceId, output, 'edit')
-      } catch {
-        failures.push(asset.filename)
-      } finally {
-        batchProgress.value += 1
-      }
-    }
+      },
+      (controls) => {
+        batchControls.value = controls
+        batchPaused.value = false
+      },
+    )
 
     if (failures.length) {
       batchError.value = `${failures.length} 张照片处理失败：${failures.slice(0, 2).join('、')}`
@@ -385,6 +390,91 @@ async function handleBatchAdjustments(mode: 'adjustments' | 'whiteBalance' | 're
   } catch (err) {
     batchError.value = err instanceof Error ? err.message : '批量调色失败'
   } finally {
+    if (!batchHasFailures.value) batchControls.value = null
+    batchPaused.value = false
+    batchBusy.value = false
+  }
+}
+
+function handleBatchStylePreset(): void {
+  const workspaceId = props.activeWorkspaceId
+  const styleId = activeStylePresetId.value
+  if (!workspaceId || !styleId || batchBusy.value || selectedAssetCount.value === 0) return
+
+  batchBusy.value = true
+  batchError.value = ''
+  batchProgress.value = 0
+  batchHasFailures.value = false
+  const selectedIds = getWorkspaceSelectedAssetIds(workspaceId)
+  const failures: string[] = []
+
+  void runBatchToolViaBackend(
+    workspaceId,
+    { assetIds: selectedIds, operation: 'style', styleId },
+    (event) => {
+      if (event.type === 'start') batchTotal.value = event.total ?? selectedIds.length
+      if (event.type === 'progress') batchProgress.value = event.processed ?? batchProgress.value
+      if (event.type === 'error' && event.sourceId) {
+        batchHasFailures.value = true
+        failures.push(event.filename ?? event.sourceId)
+        batchProgress.value = event.processed ?? batchProgress.value
+      }
+    },
+    (controls) => {
+      batchControls.value = controls
+      batchPaused.value = false
+    },
+  ).then(() => {
+    if (failures.length) {
+      batchError.value = `${failures.length} 张照片处理失败：${failures.slice(0, 2).join('、')}`
+    }
+    notifyWorkspaceAssetsChanged()
+  }).catch((err) => {
+    batchError.value = err instanceof Error ? err.message : '批量风格化失败'
+  }).finally(() => {
+    if (!batchHasFailures.value) batchControls.value = null
+    batchPaused.value = false
+    batchBusy.value = false
+  })
+}
+
+async function toggleBatchPause(): Promise<void> {
+  if (!batchControls.value) return
+  try {
+    if (batchPaused.value) {
+      await batchControls.value.resume()
+      batchPaused.value = false
+    } else {
+      await batchControls.value.pause()
+      batchPaused.value = true
+    }
+  } catch (err) {
+    batchError.value = err instanceof Error ? err.message : '批量任务操作失败'
+  }
+}
+
+async function cancelBatch(): Promise<void> {
+  if (!batchControls.value) return
+  try {
+    await batchControls.value.cancel()
+  } catch (err) {
+    batchError.value = err instanceof Error ? err.message : '取消批量任务失败'
+  }
+}
+
+async function retryFailedBatch(): Promise<void> {
+  if (!batchControls.value || batchBusy.value || !batchHasFailures.value) return
+  batchBusy.value = true
+  batchError.value = ''
+  batchProgress.value = 0
+  batchHasFailures.value = false
+  try {
+    await batchControls.value.retry()
+    notifyWorkspaceAssetsChanged()
+  } catch (err) {
+    batchError.value = err instanceof Error ? err.message : '重试批量任务失败'
+  } finally {
+    if (!batchHasFailures.value) batchControls.value = null
     batchBusy.value = false
   }
 }
@@ -486,6 +576,16 @@ const analysis = computed(() => {
   }
 
   return getWorkspaceAnalysis(props.activeWorkspaceId)
+})
+
+const agentPlan = computed(() => {
+  workspaceUiRevision.value
+  return props.activeWorkspaceId ? getWorkspaceAgentPlan(props.activeWorkspaceId) : null
+})
+
+const toolTrace = computed(() => {
+  workspaceUiRevision.value
+  return props.activeWorkspaceId ? getWorkspaceToolTrace(props.activeWorkspaceId) : null
 })
 
 const appSettings = computed(() => {
@@ -635,6 +735,9 @@ async function handleAgentRun() {
   setWorkspaceRunStep(workspaceId, 'analysis')
   setWorkspaceRunError(workspaceId, '')
   setWorkspaceAnalysis(workspaceId, null)
+  setWorkspaceAgentPlan(workspaceId, null)
+  setWorkspaceToolTrace(workspaceId, null)
+  expandedToolStepId.value = null
   setWorkspaceEditing(workspaceId, true)
 
   try {
@@ -645,6 +748,8 @@ async function handleAgentRun() {
       modelSelection: getWorkspaceModelSelection(workspaceId),
     })
     setWorkspaceAnalysis(workspaceId, result.analysis)
+    setWorkspaceAgentPlan(workspaceId, result.plan ?? null)
+    setWorkspaceToolTrace(workspaceId, result.toolTrace ?? null)
 
     const nextImage = result.images[0]
     if (!nextImage) {
@@ -696,6 +801,25 @@ async function handleEditorRun() {
   }
 }
 
+function toggleToolStep(stepId: string): void {
+  expandedToolStepId.value = expandedToolStepId.value === stepId ? null : stepId
+}
+
+function getToolLabel(tool: string): string {
+  const labels: Record<string, string> = {
+    apply_ai_edit: 'AI 修图',
+    apply_adjustments: '基础调色',
+    apply_style: '风格化 / LUT',
+    match_reference_color: '参考图追色',
+    validate_result: '结果校验',
+  }
+  return labels[tool] ?? tool
+}
+
+function getExecutionLabel(execution: string): string {
+  return { ai: 'AI', local: '本地', hybrid: '混合' }[execution] ?? execution
+}
+
 const inputClass = 'app-field resize-none'
 </script>
 
@@ -745,6 +869,20 @@ const inputClass = 'app-field resize-none'
       </p>
 
       <div v-else class="flex min-h-0 flex-1 flex-col gap-3">
+        <section v-if="batchControls && (batchBusy || batchHasFailures)" class="app-card space-y-2 p-3">
+          <div class="flex items-center justify-between gap-2 text-xs">
+            <span class="text-app-muted">批量任务 {{ batchProgress }}/{{ batchTotal }}</span>
+            <span class="text-app-primary">{{ batchHasFailures ? '有失败素材' : batchPaused ? '已暂停' : '处理中' }}</span>
+          </div>
+          <div class="flex gap-2">
+            <button v-if="batchBusy" type="button" class="app-btn-secondary flex-1" @click="toggleBatchPause">
+              {{ batchPaused ? '继续' : '暂停' }}
+            </button>
+            <button v-if="batchBusy" type="button" class="app-btn-quiet flex-1 text-red-400" @click="cancelBatch">取消</button>
+            <button v-if="batchHasFailures" type="button" class="app-btn-secondary flex-1" @click="retryFailedBatch">重试失败</button>
+          </div>
+        </section>
+
         <section v-if="workspaceMode === 'photos'" class="app-card space-y-3 p-3">
           <div class="app-eyebrow">PHOTO LIBRARY</div>
           <h3 class="text-sm font-medium text-app-foreground">照片选择</h3>
@@ -779,6 +917,14 @@ const inputClass = 'app-field resize-none'
           <h3 class="text-sm font-medium text-app-foreground">风格化</h3>
           <div class="grid grid-cols-2 gap-1.5">
             <button v-for="preset in STYLE_PRESETS" :key="preset.id" type="button" class="app-preset-button" :disabled="adjustmentBusy || batchBusy || isRunning" @click="applyStylePreset(preset.id)">{{ preset.label }}</button>
+          </div>
+          <div v-if="selectedAssetCount" class="border-t border-app-border pt-3">
+            <p class="mb-2 text-[11px] text-app-subtle">当前预设：{{ activeStylePresetLabel }}</p>
+            <button type="button" class="app-btn-primary w-full" :disabled="adjustmentBusy || batchBusy || isRunning || !activeStylePresetId" @click="handleBatchStylePreset">
+              <LoaderCircle v-if="batchBusy" :size="14" :stroke-width="1.8" class="animate-spin" />
+              <Wand2 v-else :size="14" :stroke-width="1.8" />
+              {{ batchBusy ? `正在处理 ${batchProgress}/${batchTotal}` : `应用到已选 ${selectedAssetCount} 张` }}
+            </button>
           </div>
           <input ref="lutPicker" class="hidden" type="file" accept=".cube,text/plain" @change="handleLutPick" />
           <button type="button" class="app-btn-secondary w-full" :disabled="adjustmentBusy || batchBusy || isRunning" @click="openLutPicker">
@@ -1026,6 +1172,68 @@ const inputClass = 'app-field resize-none'
             <h4 class="text-xs font-medium text-app-muted">{{ t('editorPanel.editInstructions') }}</h4>
             <p class="mt-1 text-xs leading-relaxed text-app-foreground">{{ analysis.editPrompt }}</p>
           </div>
+        </section>
+
+        <section v-if="agentPlan" class="app-card space-y-3 p-3">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="text-xs font-medium uppercase text-app-muted">Agent 执行计划</h3>
+            <span class="rounded border border-app-border px-1.5 py-0.5 text-[10px] text-app-subtle">
+              {{ getExecutionLabel(agentPlan.execution) }}
+            </span>
+          </div>
+          <p class="text-xs leading-relaxed text-app-muted">{{ agentPlan.goal }}</p>
+          <ol class="space-y-1.5">
+            <li
+              v-for="(step, index) in agentPlan.steps"
+              :key="step.id"
+              class="flex gap-2 rounded border border-app-border bg-app-surface px-2 py-1.5"
+            >
+              <span class="text-[10px] text-app-subtle">{{ index + 1 }}</span>
+              <div class="min-w-0">
+                <p class="text-xs text-app-foreground">{{ getToolLabel(step.tool) }}</p>
+                <p v-if="step.rationale" class="mt-0.5 text-[10px] leading-relaxed text-app-subtle">{{ step.rationale }}</p>
+              </div>
+            </li>
+          </ol>
+        </section>
+
+        <section v-if="toolTrace" class="app-card space-y-3 p-3">
+          <h3 class="text-xs font-medium uppercase text-app-muted">工具执行轨迹</h3>
+          <div
+            v-for="run in toolTrace.runs"
+            :key="run.stepId"
+            class="rounded border border-app-border bg-app-surface"
+          >
+            <button
+              type="button"
+              class="flex w-full items-start justify-between gap-2 px-2.5 py-2 text-left text-xs"
+              :aria-expanded="expandedToolStepId === run.stepId"
+              @click="toggleToolStep(run.stepId)"
+            >
+              <div class="min-w-0">
+                <p class="text-app-foreground">{{ getToolLabel(run.tool) }}</p>
+                <p class="mt-0.5 text-[10px] text-app-subtle">步骤 {{ run.stepId }}</p>
+              </div>
+              <span
+                class="shrink-0 rounded px-1.5 py-0.5 text-[10px]"
+                :class="run.status === 'failed' ? 'bg-red-500/10 text-red-400' : run.status === 'deferred' ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400'"
+              >
+                {{ run.status === 'failed' ? '失败' : run.status === 'deferred' ? '等待' : '完成' }}
+              </span>
+            </button>
+            <div v-if="expandedToolStepId === run.stepId" class="border-t border-app-border px-2.5 py-2">
+              <p class="text-[10px] leading-relaxed text-app-muted">{{ run.message }}</p>
+            </div>
+          </div>
+          <button
+            v-if="toolTrace.hasFailures"
+            type="button"
+            class="app-btn-secondary w-full"
+            :disabled="isRunning"
+            @click="handleAgentRun"
+          >
+            重新执行 Agent
+          </button>
         </section>
         </div>
       </div>

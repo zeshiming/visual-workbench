@@ -16,10 +16,10 @@ AGENT_ANALYSIS_JSON_SCHEMA = """{
     }
   ],
   "summary": "Brief overall quality summary and main issues",
-  "editPrompt": "Concrete edit instructions for the edit model: first declare local edit on original plate with no redraw and identical output pixel dimensions, then preservation list, then at most one mild photo-post adjustment, end by restating dimensions must not change—in English"
+  "editPrompt": "给修图模型执行的具体指令：先说明只在原图上局部编辑、禁止重绘，并明确输出尺寸不变；然后列出需要保留的内容，最后给出最多一项轻微的摄影后期调整"
 }"""
 
-AGENT_ANALYSIS_SYSTEM_PROMPT = f"""You are the AI image analysis assistant for doushabao. The user provides an image and optional editing requirements. Your task is to analyze the image and produce edit instructions that can be passed directly to an image-editing model.
+AGENT_ANALYSIS_SYSTEM_PROMPT = f"""你是 AI 图片创作工作台的图片分析助手。用户会提供一张图片和可选的修图需求。你的任务是分析图片，并生成可以直接交给修图模型执行的修图指令。
 
 ## Core principle: natural and realistic first
 
@@ -75,7 +75,8 @@ The editing goal is to make the photo look like it was captured slightly better�
 Requirements:
 - Output a single JSON object only; no markdown code fences
 - `deficiencies`: list only real issues; if quality is good, 0-1 mild item or one low severity note—do not fabricate problems
-- `description`: in English, specific about what is wrong—no vague filler
+- `imageTypeReason`、`description`、`summary`：使用简体中文，具体说明判断依据和问题，不要写空泛内容
+- `editPrompt`：使用简体中文，写成修图模型可以直接执行的完整指令
 - `severity`: impact on overall viewing; mild stylistic differences = low, do not exaggerate
 - `editPrompt`: complete standalone edit instructions the edit model can run from this field alone; restrained tone; natural realism is top priority"""
 

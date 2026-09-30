@@ -6,9 +6,12 @@ litellm handles: provider routing, modality negotiation, retry, fallback.
 
 from __future__ import annotations
 
+import base64
 import logging
 import re
 from typing import Any
+
+import httpx
 
 from ..config import settings
 
@@ -79,6 +82,109 @@ def _text_value(value: Any) -> str | None:
                 chunks.append(item["text"])
         return "\n".join(chunks) or None
     return None
+
+
+def _is_qwen_image_model(model: str) -> bool:
+    return model.lower().startswith("qwen-image-3.0")
+
+
+def _extract_image_edit_input(messages: list[dict[str, Any]]) -> tuple[str, list[str]]:
+    text_parts: list[str] = []
+    images: list[str] = []
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, str):
+            text_parts.append(content)
+            continue
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "text" and isinstance(part.get("text"), str):
+                text_parts.append(part["text"])
+            if part.get("type") == "image_url":
+                image_url = part.get("image_url")
+                if isinstance(image_url, dict) and isinstance(image_url.get("url"), str):
+                    images.append(image_url["url"])
+                elif isinstance(image_url, str):
+                    images.append(image_url)
+    return "\n".join(text_parts).strip(), images
+
+
+def _qwen_image_endpoint(host: str) -> str:
+    base = host.rstrip("/")
+    if base.endswith("/v1"):
+        return f"{base}/images/generations"
+    if base.endswith("/compatible-mode"):
+        return f"{base}/v1/images/generations"
+    return f"{base}/v1/images/generations"
+
+
+async def _download_generated_image(url: str) -> str:
+    if url.startswith("data:image/"):
+        return url
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        content_type = response.headers.get("content-type", "image/png").split(";", 1)[0]
+        encoded = base64.b64encode(response.content).decode("ascii")
+        return f"data:{content_type};base64,{encoded}"
+
+
+async def qwen_image_completion(
+    *,
+    host: str,
+    api_key: str,
+    model: str,
+    messages: list[dict[str, Any]],
+    image_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Call Alibaba Bailian's OpenAI-compatible Qwen Image 3.0 endpoint.
+
+    Bailian uses /images/generations for both text-to-image and image-to-image.
+    Image editing sends the input image in the top-level ``image`` field.
+    """
+
+    prompt, images = _extract_image_edit_input(messages)
+    if not prompt:
+        raise ValueError("Qwen Image 3.0 requires a non-empty prompt")
+    body: dict[str, Any] = {
+        "model": model,
+        "prompt": prompt,
+        "n": 1,
+        "watermark": False,
+    }
+    if images:
+        body["image"] = images if len(images) > 1 else images[0]
+    if image_config:
+        for key in ("size", "n", "watermark", "seed", "prompt_extend"):
+            if key in image_config:
+                body[key] = image_config[key]
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(600.0)) as client:
+        response = await client.post(
+            _qwen_image_endpoint(host),
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=body,
+        )
+        if response.status_code >= 400:
+            detail = response.text[:1000]
+            raise RuntimeError(f"Qwen Image API 请求失败 ({response.status_code}): {detail}")
+        payload = response.json()
+
+    outputs = payload.get("data") or []
+    image_values: list[str] = []
+    for item in outputs:
+        if not isinstance(item, dict):
+            continue
+        if isinstance(item.get("url"), str):
+            image_values.append(await _download_generated_image(item["url"]))
+        elif isinstance(item.get("b64_json"), str):
+            image_values.append(f"data:image/png;base64,{item['b64_json']}")
+    if not image_values:
+        raise RuntimeError("Qwen Image API 未返回图片")
+    return {"images": image_values, "text": payload.get("output_text")}
 
 # ── Lazy litellm import ───────────────────────────────────────
 # litellm triggers heavy sub-imports (e.g. compression) that can crash
@@ -222,6 +328,15 @@ async def litellm_image_completion(
 
     Tries with modalities=["image", "text"] first; falls back to no modalities.
     """
+    if _is_qwen_image_model(model):
+        return await qwen_image_completion(
+            host=host,
+            api_key=api_key,
+            model=model,
+            messages=messages,
+            image_config=image_config,
+        )
+
     litellm = _get_litellm()
     params = _build_litellm_params(host, api_key, model)
     litellm_params = {

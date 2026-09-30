@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
-from sqlmodel import Field, Session, SQLModel, create_engine
+from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 # ── Data directory (override via DOUSHABAO_DATA_DIR for Docker) ──
 _DATA_DIR = os.environ.get("DOUSHABAO_DATA_DIR")
@@ -57,6 +58,23 @@ class AssetRecord(SQLModel, table=True):
     size_bytes: int
 
 
+class BatchJobRecord(SQLModel, table=True):
+    """Persistent state for local batch processing jobs."""
+
+    __tablename__ = "batch_jobs"
+
+    id: str = Field(primary_key=True)
+    workspace_id: str = Field(index=True)
+    request_json: str = Field(default="{}")
+    status: str = Field(default="queued", index=True)
+    total: int = Field(default=0)
+    processed: int = Field(default=0)
+    processed_asset_ids_json: str = Field(default="[]")
+    failure_ids_json: str = Field(default="[]")
+    created_at: int = Field(default=0)
+    updated_at: int = Field(default=0)
+
+
 def get_session() -> Session:
     return Session(engine)
 
@@ -72,6 +90,16 @@ def init_db() -> None:
         row = session.get(AppConfig, 1)
         if row is None:
             session.add(AppConfig())
+            session.commit()
+        interrupted = session.exec(
+            select(BatchJobRecord).where(
+                BatchJobRecord.status.in_(["queued", "running", "paused", "cancelling"]),
+            ),
+        ).all()
+        for job in interrupted:
+            job.status = "interrupted"
+            job.updated_at = int(time.time() * 1000)
+        if interrupted:
             session.commit()
 
 

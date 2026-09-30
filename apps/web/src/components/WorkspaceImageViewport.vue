@@ -45,6 +45,9 @@ const isPanning = ref(false)
 const isDrawing = ref(false)
 const isMovingMark = ref(false)
 const hoveredMarkId = ref<string | null>(null)
+const comparePosition = ref(50)
+const isDraggingCompare = ref(false)
+const comparePointerId = ref<number | null>(null)
 
 const drawPointerId = ref<number | null>(null)
 const drawStartX = ref(0)
@@ -77,8 +80,18 @@ const imageBase = computed(() => Math.min(imageWidth.value, imageHeight.value) |
 const strokeWidth = computed(() => Math.max(2, imageBase.value * 0.004))
 
 const contentStyle = computed(() => ({
+  width: `${imageWidth.value}px`,
+  height: `${imageHeight.value}px`,
   transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`,
   transformOrigin: '0 0',
+}))
+
+const compareImageStyle = computed(() => ({
+  clipPath: `inset(0 ${100 - comparePosition.value}% 0 0)`,
+}))
+
+const compareDividerStyle = computed(() => ({
+  left: `${comparePosition.value}%`,
 }))
 
 const viewportCursor = computed(() => {
@@ -173,6 +186,23 @@ function fitImageToViewport(): void {
   translateY.value = (viewportHeight - imageHeightPx * fitScale) / 2
 }
 
+function setZoomPercent(percent: number): void {
+  const viewport = viewportRef.value
+  if (!viewport || !imageWidth.value || !imageHeight.value) return
+
+  const rect = viewport.getBoundingClientRect()
+  const pointerX = rect.width / 2
+  const pointerY = rect.height / 2
+  const previousScale = scale.value
+  const nextScale = clampScale(percent / 100)
+  const imageX = (pointerX - translateX.value) / previousScale
+  const imageY = (pointerY - translateY.value) / previousScale
+
+  translateX.value = pointerX - imageX * nextScale
+  translateY.value = pointerY - imageY * nextScale
+  scale.value = nextScale
+}
+
 function clientToImagePoint(clientX: number, clientY: number): { x: number; y: number } | null {
   const viewport = viewportRef.value
 
@@ -186,6 +216,35 @@ function clientToImagePoint(clientX: number, clientY: number): { x: number; y: n
     x: (clientX - rect.left - translateX.value) / scale.value,
     y: (clientY - rect.top - translateY.value) / scale.value,
   }
+}
+
+function updateComparePosition(clientX: number): void {
+  const point = clientToImagePoint(clientX, 0)
+  if (!point || !imageWidth.value) return
+  comparePosition.value = Math.max(0, Math.min(100, (point.x / imageWidth.value) * 100))
+}
+
+function startCompareDrag(event: PointerEvent): void {
+  if (!props.compareSrc) return
+  event.preventDefault()
+  event.stopPropagation()
+  isDraggingCompare.value = true
+  comparePointerId.value = event.pointerId
+  updateComparePosition(event.clientX)
+  ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
+}
+
+function moveCompareDrag(event: PointerEvent): void {
+  if (!isDraggingCompare.value || comparePointerId.value !== event.pointerId) return
+  event.preventDefault()
+  event.stopPropagation()
+  updateComparePosition(event.clientX)
+}
+
+function endCompareDrag(event?: PointerEvent): void {
+  if (event && comparePointerId.value !== event.pointerId) return
+  isDraggingCompare.value = false
+  comparePointerId.value = null
 }
 
 function updateHoveredMark(point: { x: number; y: number } | null): void {
@@ -445,6 +504,7 @@ watch(
     finishMovingMark()
     isDrawing.value = false
     drawPointerId.value = null
+    endCompareDrag()
   },
 )
 
@@ -479,6 +539,7 @@ watch(
 
 defineExpose({
   fitImageToViewport,
+  setZoomPercent,
 })
 </script>
 
@@ -496,21 +557,35 @@ defineExpose({
       @pointercancel="endPan"
       @auxclick="onAuxClick"
     >
-      <div class="absolute inset-0" :style="contentStyle">
+      <div class="absolute left-0 top-0" :style="contentStyle">
       <img
         v-if="props.compareSrc"
         :src="props.compareSrc"
         :alt="`${alt}原图对比`"
         draggable="false"
         class="pointer-events-none absolute left-0 top-0 block max-w-none"
-        style="clip-path: inset(0 50% 0 0)"
+        :style="compareImageStyle"
         aria-hidden="true"
       />
       <div
         v-if="props.compareSrc"
-        class="pointer-events-none absolute inset-y-0 left-1/2 z-10 w-px -translate-x-1/2 bg-white/80 shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
-        aria-hidden="true"
-      />
+        class="absolute inset-y-0 z-10 w-5 -translate-x-1/2 cursor-ew-resize touch-none"
+        :style="compareDividerStyle"
+        role="separator"
+        aria-label="拖动分割对比线"
+        :aria-valuenow="Math.round(comparePosition)"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        @pointerdown="startCompareDrag"
+        @pointermove="moveCompareDrag"
+        @pointerup="endCompareDrag"
+        @pointercancel="endCompareDrag"
+      >
+        <span class="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/80 shadow-[0_0_0_1px_rgba(0,0,0,0.35)]" />
+        <span class="absolute left-1/2 top-1/2 flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/80 bg-black/55 text-xs text-white shadow-lg">
+          ↔
+        </span>
+      </div>
       <img
         ref="imageRef"
         :src="src"

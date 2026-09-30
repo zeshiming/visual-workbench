@@ -29,6 +29,51 @@ export interface ApiAgentRunResult {
   analysisRaw: string
   images: string[]
   text: string | null
+  plan?: ApiAgentPlan
+  toolTrace?: ApiToolRunTrace
+}
+
+export interface ApiAgentPlanStep {
+  id: string
+  tool: string
+  params: Record<string, unknown>
+  depends_on: string[]
+  rationale: string
+}
+
+export interface ApiAgentPlan {
+  version: '1'
+  goal: string
+  execution: 'local' | 'ai' | 'hybrid'
+  steps: ApiAgentPlanStep[]
+}
+
+export interface ApiToolRunTrace {
+  runs: Array<{
+    stepId: string
+    tool: string
+    status: 'executed' | 'deferred' | 'failed'
+    message: string
+  }>
+  hasFailures: boolean
+}
+
+export interface ApiBatchToolEvent {
+  type: 'start' | 'progress' | 'status' | 'done' | 'cancelled' | 'error'
+  processed?: number
+  total?: number
+  sourceId?: string
+  outputId?: string
+  filename?: string
+  message?: string
+}
+
+export interface ApiBatchJobControls {
+  jobId: string
+  pause: () => Promise<void>
+  resume: () => Promise<void>
+  cancel: () => Promise<void>
+  retry: () => Promise<void>
 }
 
 export interface ApiEditorRunResult {
@@ -124,6 +169,8 @@ export async function runAgentViaBackend(
         analysis_raw?: string
         images?: string[]
         text?: string | null
+        plan?: ApiAgentPlan
+        tool_trace?: ApiToolRunTrace
       }
 
       try {
@@ -141,6 +188,8 @@ export async function runAgentViaBackend(
           analysisRaw: event.analysis_raw,
           images: event.images,
           text: event.text ?? null,
+          plan: event.plan,
+          toolTrace: event.tool_trace,
         } as ApiAgentRunResult
       } else if (event.type === 'error') {
         // Do not swallow the backend's provider/model error. The previous
@@ -152,6 +201,101 @@ export async function runAgentViaBackend(
   }
 
   throw new Error('后端未返回结果')
+}
+
+export async function runBatchToolViaBackend(
+  workspaceId: string,
+  input: {
+    assetIds?: string[]
+    feedbackId?: string
+    referenceAssetId?: string
+    operation: 'adjustments' | 'white_balance' | 'style' | 'reference_color'
+    adjustments?: Record<string, number>
+    styleId?: string
+    referenceImage?: string
+    priority?: 'high' | 'normal' | 'low'
+  },
+  onEvent?: (event: ApiBatchToolEvent) => void,
+  onJob?: (controls: ApiBatchJobControls) => void,
+): Promise<void> {
+  const startResponse = await fetch(`${API_BASE}/api/v1/agent/batch/${encodeURIComponent(workspaceId)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      assetIds: input.assetIds ?? [],
+      feedbackId: input.feedbackId,
+      referenceAssetId: input.referenceAssetId,
+      operation: input.operation,
+      adjustments: input.adjustments ?? {},
+      styleId: input.styleId,
+      referenceImage: input.referenceImage,
+      priority: input.priority ?? 'normal',
+    }),
+  })
+  if (!startResponse.ok) {
+    throw new Error(`批量处理请求失败 (${startResponse.status}): ${await startResponse.text()}`)
+  }
+  const started = await startResponse.json() as { jobId?: string }
+  if (!started.jobId) throw new Error('后端未返回批量任务 ID')
+
+  const requestJobAction = async (jobId: string, action: 'pause' | 'resume' | 'cancel'): Promise<void> => {
+    const response = await fetch(`${API_BASE}/api/v1/agent/batch/jobs/${encodeURIComponent(jobId)}/${action}`, {
+      method: 'POST',
+    })
+    if (!response.ok) {
+      throw new Error(`批量任务操作失败 (${response.status}): ${await response.text()}`)
+    }
+  }
+
+  async function streamJob(jobId: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/api/v1/agent/batch/jobs/${encodeURIComponent(jobId)}/events`)
+    if (!response.ok) {
+      throw new Error(`批量任务事件流请求失败 (${response.status}): ${await response.text()}`)
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('后端未返回批量处理流')
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.trim()) continue
+        const event = JSON.parse(line) as ApiBatchToolEvent
+        onEvent?.(event)
+        if (event.type === 'error' && !event.sourceId) {
+          throw new Error(event.message || '批量处理失败')
+        }
+        if (event.type === 'cancelled') return
+      }
+    }
+  }
+
+  const makeControls = (jobId: string): ApiBatchJobControls => ({
+    jobId,
+    pause: () => requestJobAction(jobId, 'pause'),
+    resume: () => requestJobAction(jobId, 'resume'),
+    cancel: () => requestJobAction(jobId, 'cancel'),
+    retry: async () => {
+      const response = await fetch(`${API_BASE}/api/v1/agent/batch/jobs/${encodeURIComponent(jobId)}/retry`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        throw new Error(`重试批量任务失败 (${response.status}): ${await response.text()}`)
+      }
+      const retry = await response.json() as { jobId?: string }
+      if (!retry.jobId) throw new Error('后端未返回重试任务 ID')
+      onJob?.(makeControls(retry.jobId))
+      await streamJob(retry.jobId)
+    },
+  })
+
+  onJob?.(makeControls(started.jobId))
+  await streamJob(started.jobId)
 }
 
 // ── Editor / Generate Image ───────────────────────────────────
@@ -303,6 +447,17 @@ export interface ApiAsset {
   pairRole?: 'raw' | 'jpeg' | 'other' | null
 }
 
+export interface ApiAssetContextItem extends ApiAsset {
+  imageUrl: string
+}
+
+export interface ApiAssetContext {
+  selectionSource: 'selected_assets' | 'feedback_id'
+  assets: ApiAssetContextItem[]
+  reference: ApiAssetContextItem | null
+  missingIds: string[]
+}
+
 function assetPath(workspaceId: string): string {
   return `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/assets`
 }
@@ -313,6 +468,17 @@ export function assetImageUrl(workspaceId: string, assetId: string): string {
 
 export function listWorkspaceAssets(workspaceId: string): Promise<ApiAsset[]> {
   return apiJson<ApiAsset[]>('GET', assetPath(workspaceId))
+}
+
+export function resolveWorkspaceAssetContext(
+  workspaceId: string,
+  input: { assetIds?: string[]; feedbackId?: string; referenceAssetId?: string },
+): Promise<ApiAssetContext> {
+  return apiJson<ApiAssetContext>('POST', `${assetPath(workspaceId)}/context`, {
+    assetIds: input.assetIds ?? [],
+    feedbackId: input.feedbackId,
+    referenceAssetId: input.referenceAssetId,
+  })
 }
 
 export async function uploadWorkspaceAsset(

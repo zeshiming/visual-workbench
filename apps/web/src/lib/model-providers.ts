@@ -45,7 +45,7 @@ export const PROVIDER_DEFINITIONS: Record<ProviderKind, ProviderDefinition> = {
     name: 'OpenAI 兼容',
     defaultHost: DEFAULT_OPENAI_COMPATIBLE_HOST,
     hostEditable: true,
-    hostHint: '任意 OpenAI Chat Completions 兼容 API（如 OpenAI、DeepSeek、本地代理等）。',
+    hostHint: '任意 OpenAI Chat Completions 或 Images 兼容 API（如 OpenAI、百炼、本地代理等）。',
     keyPlaceholder: 'sk-...',
     modelIdPlaceholder: 'gpt-4o',
   },

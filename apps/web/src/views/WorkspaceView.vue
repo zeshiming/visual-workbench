@@ -45,7 +45,9 @@ const { t } = useI18n()
 const hydratedSourceImage = ref<string | null>(null)
 const isLoadingImage = ref(false)
 const replaceInputRef = ref<HTMLInputElement | null>(null)
+const viewportRef = ref<InstanceType<typeof WorkspaceImageViewport> | null>(null)
 const comparisonMode = ref<'before' | 'split' | 'after'>('after')
+const zoomPreset = ref('fit')
 
 const workspaceRecord = computed(() => {
   openWorkspaces.value
@@ -96,6 +98,14 @@ const viewportImage = computed(() => {
 const splitComparisonImage = computed(() =>
   comparisonMode.value === 'split' ? comparisonImage.value : null,
 )
+
+function applyZoomPreset(): void {
+  if (zoomPreset.value === 'fit') {
+    viewportRef.value?.fitImageToViewport()
+    return
+  }
+  viewportRef.value?.setZoomPercent(Number(zoomPreset.value))
+}
 
 const annotationMode = computed(() => editMode.value === 'editor' && !isEditing.value)
 
@@ -276,6 +286,18 @@ defineExpose({
             @click="comparisonMode = 'after'"
           >调整后</button>
         </div>
+        <label class="app-zoom-control" aria-label="画布缩放比例">
+          <span>缩放</span>
+          <select v-model="zoomPreset" @change="applyZoomPreset">
+            <option value="fit">适合窗口</option>
+            <option value="25">25%</option>
+            <option value="50">50%</option>
+            <option value="75">75%</option>
+            <option value="100">100%</option>
+            <option value="150">150%</option>
+            <option value="200">200%</option>
+          </select>
+        </label>
         <input
           ref="replaceInputRef"
           type="file"
@@ -295,6 +317,7 @@ defineExpose({
       <div class="app-workspace-canvas-wrap">
         <div class="app-workspace-canvas">
           <WorkspaceImageViewport
+            ref="viewportRef"
             :src="viewportImage"
             :compare-src="splitComparisonImage"
             :preserve-viewport="true"

@@ -9,11 +9,11 @@ import uuid
 import zipfile
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 from PIL import Image, UnidentifiedImageError
 from PIL.ExifTags import TAGS
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import desc
 from sqlmodel import Session, select
 
@@ -47,6 +47,25 @@ class AssetOut(BaseModel):
 
 class AssetExportRequest(BaseModel):
     assetIds: list[str]
+
+
+class AssetContextRequest(BaseModel):
+    """Selection context passed from the photo library to an Agent run."""
+
+    assetIds: list[str] = Field(default_factory=list)
+    feedbackId: str | None = None
+    referenceAssetId: str | None = None
+
+
+class AssetContextItem(AssetOut):
+    imageUrl: str
+
+
+class AssetContextResponse(BaseModel):
+    selectionSource: str
+    assets: list[AssetContextItem]
+    reference: AssetContextItem | None = None
+    missingIds: list[str] = Field(default_factory=list)
 
 
 def get_db():
@@ -146,11 +165,30 @@ def _out(item: AssetRecord, pair_group: str | None = None) -> AssetOut:
                     pairGroup=pair_group, pairRole=_pair_role(item))
 
 
+def _context_item(workspace_id: str, item: AssetRecord) -> AssetContextItem:
+    basic = _out(item, _pair_key(item.filename))
+    return AssetContextItem(
+        **basic.model_dump(),
+        imageUrl=f"/api/v1/workspaces/{workspace_id}/assets/{item.id}/image",
+    )
+
+
 @router.get("", response_model=list[AssetOut])
-def list_assets(workspace_id: str, db: Session = Depends(get_db)):
+def list_assets(
+    workspace_id: str,
+    feedback_id: str | None = Query(default=None, alias="feedbackId"),
+    query: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
     _workspace(db, workspace_id)
     items = db.exec(select(AssetRecord).where(AssetRecord.workspace_id == workspace_id)
                     .order_by(desc(AssetRecord.created_at))).all()
+    if feedback_id:
+        needle = feedback_id.strip().lower()
+        items = [item for item in items if needle in item.filename.lower()]
+    if query:
+        needle = query.strip().lower()
+        items = [item for item in items if needle in item.filename.lower()]
     groups: dict[str, list[AssetRecord]] = {}
     for item in items:
         groups.setdefault(_pair_key(item.filename), []).append(item)
@@ -158,6 +196,48 @@ def list_assets(workspace_id: str, db: Session = Depends(get_db)):
         _out(item, _pair_key(item.filename) if len(groups[_pair_key(item.filename)]) > 1 else None)
         for item in items
     ]
+
+
+@router.post("/context", response_model=AssetContextResponse)
+def resolve_asset_context(
+    workspace_id: str,
+    body: AssetContextRequest,
+    db: Session = Depends(get_db),
+):
+    """Resolve selected assets and an optional reference into Agent context."""
+
+    _workspace(db, workspace_id)
+    all_items = db.exec(
+        select(AssetRecord).where(AssetRecord.workspace_id == workspace_id)
+    ).all()
+    by_id = {item.id: item for item in all_items}
+    selected: list[AssetRecord] = []
+    missing: list[str] = []
+
+    if body.feedbackId and body.feedbackId.strip():
+        needle = body.feedbackId.strip().lower()
+        selected = [item for item in all_items if needle in item.filename.lower()]
+        source = "feedback_id"
+    else:
+        source = "selected_assets"
+        for asset_id in dict.fromkeys(body.assetIds):
+            item = by_id.get(asset_id)
+            if item is None:
+                missing.append(asset_id)
+            else:
+                selected.append(item)
+
+    reference = by_id.get(body.referenceAssetId) if body.referenceAssetId else None
+    if body.referenceAssetId and reference is None:
+        missing.append(body.referenceAssetId)
+
+    selected = selected[:200]
+    return AssetContextResponse(
+        selectionSource=source,
+        assets=[_context_item(workspace_id, item) for item in selected],
+        reference=_context_item(workspace_id, reference) if reference else None,
+        missingIds=list(dict.fromkeys(missing)),
+    )
 
 
 @router.post("", response_model=AssetOut, status_code=201)

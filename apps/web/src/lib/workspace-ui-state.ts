@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 
 import type { AgentImageAnalysis } from '@/types/agent'
+import type { ApiAgentPlan, ApiToolRunTrace } from '@/lib/api-client'
 
 import type { EditMode } from '@/lib/edit-mode'
 import type { EditorMark } from '@/types/editor-mark'
@@ -19,6 +20,8 @@ type WorkspaceUiState = {
   runStep: WorkspaceRunStep | null
   runError: string
   analysis: AgentImageAnalysis | null
+  agentPlan: ApiAgentPlan | null
+  toolTrace: ApiToolRunTrace | null
   selectedAssetIds: string[]
   activeAssetId: string | null
   assetAdjustments: Record<string, BasicImageAdjustments>
@@ -50,6 +53,8 @@ function createDefaultState(workspaceId: string): WorkspaceUiState {
     runStep: null,
     runError: '',
     analysis: null,
+    agentPlan: null,
+    toolTrace: null,
     selectedAssetIds: [],
     activeAssetId: null,
     assetAdjustments: loadAssetAdjustments(workspaceId),
@@ -209,10 +214,30 @@ export function setWorkspaceAnalysis(
   bumpRevision()
 }
 
+export function getWorkspaceAgentPlan(workspaceId: string): ApiAgentPlan | null {
+  return getState(workspaceId).agentPlan
+}
+
+export function setWorkspaceAgentPlan(workspaceId: string, plan: ApiAgentPlan | null): void {
+  getState(workspaceId).agentPlan = plan
+  bumpRevision()
+}
+
+export function getWorkspaceToolTrace(workspaceId: string): ApiToolRunTrace | null {
+  return getState(workspaceId).toolTrace
+}
+
+export function setWorkspaceToolTrace(workspaceId: string, trace: ApiToolRunTrace | null): void {
+  getState(workspaceId).toolTrace = trace
+  bumpRevision()
+}
+
 export function clearWorkspaceRunPresentation(workspaceId: string): void {
   const state = getState(workspaceId)
   state.runError = ''
   state.analysis = null
+  state.agentPlan = null
+  state.toolTrace = null
   bumpRevision()
 }
 

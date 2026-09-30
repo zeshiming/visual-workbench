@@ -5,7 +5,7 @@
 import { translate } from '@/i18n'
 
 import { validateRunConfig } from '@/lib/app-settings'
-import { runAgentViaBackend, type AgentRunStep } from '@/lib/api-client'
+import { runAgentViaBackend, type AgentRunStep, type ApiAgentPlan, type ApiToolRunTrace } from '@/lib/api-client'
 import { loadAppSettings } from '@/lib/config-storage'
 import { hydrateWorkspaceImage } from '@/lib/workspace-storage'
 import type { AgentImageAnalysis } from '@/types/agent'
@@ -19,6 +19,8 @@ export interface AgentRunResult {
   analysisRaw: string
   images: string[]
   text: string | null
+  plan?: ApiAgentPlan
+  toolTrace?: ApiToolRunTrace
 }
 
 export async function runWorkspaceAgent(
@@ -47,5 +49,7 @@ export async function runWorkspaceAgent(
     analysisRaw: result.analysisRaw,
     images: result.images,
     text: result.text,
+    plan: result.plan,
+    toolTrace: result.toolTrace,
   }
 }

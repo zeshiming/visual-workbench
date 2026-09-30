@@ -16,6 +16,8 @@ from ..services.image_utils import (
     resize_image_to_dimensions,
 )
 from .analysis import parse_agent_analysis
+from .agent_plan import build_plan_from_analysis
+from .agent_tools import execute_plan
 from .prompts import get_analysis_system_prompt, get_edit_system_prompt, get_editor_system_prompt, build_editor_user_prompt
 from .types import AgentImageAnalysis
 
@@ -48,10 +50,10 @@ async def run_agent(
     image_data_url: str,
     user_prompt: str = "",
     on_progress: Callable[[str], Awaitable[None]] | None = None,
-) -> tuple[AgentImageAnalysis, str, list[str], str | None]:
+) -> tuple[AgentImageAnalysis, str, list[str], str | None, dict, dict]:
     """Two-phase agent workflow: analysis → edit.
 
-    Returns (analysis, analysis_raw, images, edit_text).
+    Returns (analysis, analysis_raw, images, edit_text, plan, tool_trace).
     """
     # ── Prepare image ──────────────────────────────────────
     source_w, source_h = read_image_dimensions_from_data_url(image_data_url)
@@ -118,7 +120,24 @@ async def run_agent(
     # Normalize to source dimensions
     normalized_image = resize_image_to_dimensions(images[0], source_w, source_h)
 
-    return analysis, analysis_raw, [normalized_image], edit_result.get("text")
+    plan = build_plan_from_analysis(analysis)
+    execution = execute_plan(
+        plan,
+        source_image=image_data_url,
+        output_image=normalized_image,
+    )
+    if execution.has_failures:
+        failed = next(run for run in execution.runs if run.status == "failed")
+        raise RuntimeError(f"结果校验失败：{failed.message}")
+
+    return (
+        analysis,
+        analysis_raw,
+        [normalized_image],
+        edit_result.get("text"),
+        plan.model_dump(),
+        execution.to_dict(),
+    )
 
 
 async def generate_image(

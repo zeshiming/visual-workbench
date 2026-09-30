@@ -141,13 +141,13 @@ export function resolveRunConfig(
 
   return {
     analysis: {
-      host: analysisProvider.host,
-      key: analysisProvider.key,
+      host: analysisModel.host?.trim() || analysisProvider.host,
+      key: analysisModel.key?.trim() || analysisProvider.key,
       model: analysisModel.modelId,
     },
     edit: {
-      host: editProvider.host,
-      key: editProvider.key,
+      host: editModel.host?.trim() || editProvider.host,
+      key: editModel.key?.trim() || editProvider.key,
       model: editModel.modelId,
     },
   }
@@ -244,7 +244,9 @@ export function validateAppSettings(settings: AppSettings): string | null {
   const usedProviderIds = new Set(settings.models.map((model) => model.providerId))
 
   for (const provider of settings.providers) {
-    if (usedProviderIds.has(provider.id) && !provider.key.trim()) {
+    const providerModels = settings.models.filter((model) => model.providerId === provider.id)
+    const hasModelKey = providerModels.some((model) => Boolean(model.key?.trim()))
+    if (usedProviderIds.has(provider.id) && !provider.key.trim() && !hasModelKey) {
       return translate('errors.providerKeyRequired', { provider: getProviderLabel(provider.id) })
     }
   }

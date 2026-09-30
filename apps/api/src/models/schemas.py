@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -36,6 +36,20 @@ class AgentRunResponse(BaseModel):
     analysis_raw: str
     images: list[str]
     text: str | None = None
+    plan: dict[str, Any] | None = None
+    tool_trace: dict[str, Any] | None = None
+
+
+class BatchToolRequest(BaseModel):
+    assetIds: list[str] = Field(default_factory=list)
+    excludeAssetIds: list[str] = Field(default_factory=list)
+    feedbackId: str | None = None
+    referenceAssetId: str | None = None
+    operation: Literal["adjustments", "white_balance", "style", "reference_color"]
+    adjustments: dict[str, float] = Field(default_factory=dict)
+    styleId: str | None = None
+    referenceImage: str | None = None
+    priority: Literal["high", "normal", "low"] = "normal"
 
 
 # ── Editor Run ─────────────────────────────────────────────────

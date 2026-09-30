@@ -117,42 +117,84 @@ def build_plan_from_analysis(analysis: AgentImageAnalysis) -> AgentPlan:
     replace this function while returning the same AgentPlan contract.
     """
 
-    steps: list[AgentPlanStep] = []
-    issue_categories = {item.category for item in analysis.deficiencies}
-    local_categories = sorted(issue_categories & {"color", "lighting"})
-
-    if local_categories:
+    adjustments = infer_adjustments_from_analysis(analysis)
+    steps: list[AgentPlanStep] = [
+        AgentPlanStep(
+            id="ai_edit",
+            tool="apply_ai_edit",
+            depends_on=[],
+            params={"preserve_original_plate": True, "edit_prompt": analysis.editPrompt},
+            rationale="使用已配置的修图模型，在原图基础上执行语义或局部编辑。",
+        ),
+    ]
+    if adjustments:
         steps.append(
             AgentPlanStep(
                 id="local_balance",
                 tool="apply_adjustments",
-                params={"categories": local_categories, "strength": "conservative"},
-                rationale="Use deterministic local adjustments for color and lighting issues first.",
+                depends_on=["ai_edit"],
+                params={"adjustments": adjustments, "strength": "conservative"},
+                rationale="在 AI 修图后，用保守的本地算法完成最后的色彩平衡。",
             ),
         )
 
-    edit_dependencies = [steps[-1].id] if steps else []
-    steps.append(
-        AgentPlanStep(
-            id="ai_edit",
-            tool="apply_ai_edit",
-            depends_on=edit_dependencies,
-            params={"preserve_original_plate": True, "edit_prompt": analysis.editPrompt},
-            rationale="Use the configured edit model only for the remaining semantic or local edit.",
-        ),
-    )
     steps.append(
         AgentPlanStep(
             id="validate",
             tool="validate_result",
             depends_on=[steps[-1].id],
             params={"preserve_dimensions": True, "preserve_composition": True},
-            rationale="Verify the edited output before returning it to the workspace.",
+            rationale="在结果返回工作区前，检查输出是否存在并确认尺寸保持不变。",
         ),
     )
 
-    execution = "hybrid" if local_categories else "ai"
+    execution = "hybrid" if adjustments else "ai"
     return AgentPlan(goal=analysis.summary, execution=execution, steps=steps)
+
+
+def infer_adjustments_from_analysis(analysis: AgentImageAnalysis) -> dict[str, int]:
+    """Infer only obvious, conservative numeric adjustments from descriptions.
+
+    Directional color corrections are skipped when the model does not provide
+    a clear cue. This prevents the planner from inventing a white-balance
+    direction merely because an image was classified as having a color issue.
+    """
+
+    adjustments: dict[str, int] = {}
+    for item in analysis.deficiencies:
+        text = f"{item.description} {analysis.summary}".lower()
+
+        if item.category == "lighting":
+            if any(word in text for word in ("dark", "underexposed", "dim", "crushed", "too low")):
+                adjustments["exposure"] = 8
+                adjustments["shadows"] = 10
+            elif any(word in text for word in ("bright", "overexposed", "blown", "too high")):
+                adjustments["exposure"] = -6
+                adjustments["highlights"] = -10
+
+        if item.category == "color":
+            if any(word in text for word in ("warm cast", "yellow cast", "too warm", "orange cast")):
+                adjustments["temperature"] = -6
+            elif any(word in text for word in ("cool cast", "blue cast", "too cool")):
+                adjustments["temperature"] = 6
+
+            if any(word in text for word in ("green cast", "green tint")):
+                adjustments["tint"] = -6
+            elif any(word in text for word in ("magenta cast", "purple cast")):
+                adjustments["tint"] = 6
+
+            if any(word in text for word in ("desaturated", "low saturation", "washed out")):
+                adjustments["saturation"] = 6
+            elif any(word in text for word in ("oversaturated", "too saturated")):
+                adjustments["saturation"] = -6
+
+        if item.category in {"color", "lighting"}:
+            if any(word in text for word in ("flat", "low contrast", "hazy")):
+                adjustments["contrast"] = 6
+            elif any(word in text for word in ("harsh contrast", "high contrast")):
+                adjustments["contrast"] = -5
+
+    return adjustments
 
 
 def tool_catalog_as_dicts() -> list[dict[str, str]]:

@@ -409,6 +409,30 @@ function cancelClear() {
                   />
                 </label>
 
+                <label class="block space-y-1">
+                  <span class="text-xs text-app-muted">{{ t('settings.apiHost') }}（模型专用，可选）</span>
+                  <input
+                    v-model="model.host"
+                    type="url"
+                    autocomplete="off"
+                    :placeholder="provider.host"
+                    :class="inputClass"
+                  />
+                  <span class="text-[11px] text-app-subtle">留空则继承上方 Provider 的地址</span>
+                </label>
+
+                <label class="block space-y-1">
+                  <span class="text-xs text-app-muted">{{ t('settings.apiKey') }}（模型专用，可选）</span>
+                  <input
+                    v-model="model.key"
+                    type="password"
+                    autocomplete="off"
+                    :placeholder="t('settings.keyServerHint')"
+                    :class="inputClass"
+                  />
+                  <span class="text-[11px] text-app-subtle">留空则继承上方 Provider 的 Key</span>
+                </label>
+
                 <div class="space-y-1.5">
                   <span class="text-xs text-app-muted">{{ t('settings.role') }}</span>
                   <div class="flex flex-wrap gap-2">
