@@ -1,0 +1,9 @@
+[project]
+name = "doushabao"
+version = "0.1.0"
+description = "Doushabao AI Image Editor — full-stack project"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.uv]
+managed = false

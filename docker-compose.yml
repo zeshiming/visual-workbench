@@ -1,0 +1,59 @@
+# =============================================================================
+# Doushabao AI Image Editor — Docker Compose 一键部署
+#
+# 使用方式：
+#   1. 首次启动（前台查看日志）：
+#      docker compose up
+#
+#   2. 后台运行：
+#      docker compose up -d
+#
+#   3. 查看日志：
+#      docker compose logs -f
+#
+#   4. 停止：
+#      docker compose down
+#
+#   5. 配置 API Key（可选）：
+#      方式一：复制 .env.example 为 .env 并填写
+#      方式二：直接在 shell 中 export（见下方 environment 注释）
+# =============================================================================
+
+services:
+  doushabao:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: doushabao:latest
+    container_name: doushabao
+    ports:
+      - "8000:8000"
+    volumes:
+      # 持久化 SQLite 数据库和工作区图片
+      - doushabao-data:/data
+    environment:
+      # ── AI 提供商 API Key（可选） ──────────────────────────
+      # 方式一：在此处直接填写（不推荐提交到 git）
+      # OPENROUTER_API_KEY: sk-or-xxx
+      # GEMINI_API_KEY: AIza...
+      # OPENAI_API_KEY: sk-xxx
+      #
+      # 方式二：通过 .env 文件自动加载（推荐）
+      # 在项目根目录创建 .env 文件，写入：
+      #   OPENROUTER_API_KEY=sk-or-xxx
+      # 然后取消下面这行的注释：
+      # - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      # - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+    restart: unless-stopped
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8000; echo -e 'GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3; cat <&3 | head -1 | grep -q 200"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  doushabao-data:
+    name: doushabao-data
